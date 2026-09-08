@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import logoImg from '@/assets/logo.png'
 import { trackEvent } from '@/utils/analytics'
 
-const REPO_URL = 'https://github.com/lxt-java/mustardseed'
+const REPO_URL = 'https://github.com/lxt-promise/mustardseed'
 const ISSUES_URL = `${REPO_URL}/issues`
 const APP_VERSION = 'v1.0.0'
 
@@ -11,7 +11,8 @@ const TOOLS = [
   { to: '/pomodoro', icon: '🍅', name: '番茄钟', desc: '专注计时 · 三种模式' },
   { to: '/todo', icon: '✅', name: '待办清单', desc: '专注搞定今天的事' },
   { to: '/workdays', icon: '📅', name: '工作日计算', desc: '双休 / 单休 / 大小周' },
-  { to: '/picker', icon: '🎯', name: '纠结人神器', desc: '吃啥？选啥？帮你决定' },
+  // 暂时下线纠结人模块（恢复时取消注释即可）
+  // { to: '/picker', icon: '🎯', name: '纠结人神器', desc: '吃啥？选啥？帮你决定' },
   { to: '/music', icon: '🎵', name: '音乐小站', desc: '钢琴曲 / 白噪音' },
   { to: '/quiz', icon: '🧠', name: '趣味小测试', desc: '性格 / 笑话 / 锦囊' },
   { to: '/verse', icon: '✨', name: '治愈金句', desc: '中英对照 · 200 条' },

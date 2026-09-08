@@ -2,7 +2,7 @@
 
 > 一粒最小的种子，也能长成最大的植物 —— 每一件小事都算数。
 > 一个清新治愈的综合工具箱：**办公 | 休闲 双模式**，**纯前端**，无需登录，所有数据保存在你的浏览器本地。
-> 在线访问：https://lxt-java.github.io/mustardseed/ · 仓库：https://github.com/lxt-java/mustardseed
+> 在线访问：https://lxt-promise.github.io/mustardseed/ · 仓库：https://github.com/lxt-promise/mustardseed
 
 ---
 
@@ -33,7 +33,7 @@
 前置条件：**Node.js ≥ 18**
 
 ```bash
-git clone https://github.com/lxt-java/mustardseed.git
+git clone https://github.com/lxt-promise/mustardseed.git
 cd mustardseed/frontend
 npm install
 npm run dev       # → http://localhost:9999/

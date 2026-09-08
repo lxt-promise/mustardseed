@@ -70,19 +70,20 @@ const funTools: Tool[] = [
       </svg>
     ),
   },
-  {
-    to: '/picker',
-    name: '纠结人神器',
-    desc: '吃啥？选啥？一键帮你决定',
-    color: 'from-amber-400 to-pink-500',
-    badge: '🎯 首发',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-white">
-        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-        <circle cx="12" cy="12" r="3.5" />
-      </svg>
-    ),
-  },
+  // 暂时下线纠结人模块（恢复时取消注释即可）
+  // {
+  //   to: '/picker',
+  //   name: '纠结人神器',
+  //   desc: '吃啥？选啥？一键帮你决定',
+  //   color: 'from-amber-400 to-pink-500',
+  //   badge: '🎯 首发',
+  //   icon: (
+  //     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-white">
+  //       <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+  //       <circle cx="12" cy="12" r="3.5" />
+  //     </svg>
+  //   ),
+  // },
   {
     to: '/music',
     name: '音乐小站',
