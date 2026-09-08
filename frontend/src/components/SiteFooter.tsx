@@ -10,7 +10,7 @@ const SiteFooter: React.FC = () => {
         <span>芥菜种子 · 一个治愈又实用的综合工具箱</span>
       </div>
       <div className="mt-1 text-mint-700/50">
-        v1.0.0
+        v1.1.0
       </div>
     </footer>
   )

@@ -5,7 +5,7 @@ import { trackEvent } from '@/utils/analytics'
 
 const REPO_URL = 'https://github.com/lxt-promise/mustardseed'
 const ISSUES_URL = `${REPO_URL}/issues`
-const APP_VERSION = 'v1.0.0'
+const APP_VERSION = 'v1.1.0'
 
 const TOOLS = [
   { to: '/pomodoro', icon: '🍅', name: '番茄钟', desc: '专注计时 · 三种模式' },
