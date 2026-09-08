@@ -113,7 +113,7 @@ const funTools: Tool[] = [
   {
     to: '/reading',
     name: '研经日课',
-    desc: '新约27卷 · 逐课研读经文',
+    desc: '新旧约66卷 · 逐课研读经文',
     color: 'from-emerald-400 to-mint-600',
     badge: '📖 新上',
     icon: (
@@ -231,12 +231,12 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* 休闲娱乐 */}
+      {/* 休闲工具箱 */}
       <section>
         <div className="flex items-end justify-between mb-4">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pink-100 text-pink-600 text-xs font-semibold">
-              🎈 休闲娱乐
+              🎈 休闲工具箱
             </div>
             <h2 className="mt-2 text-xl font-bold text-mint-900">让生活可爱一点</h2>
           </div>
