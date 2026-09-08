@@ -9,6 +9,8 @@ import Music from './pages/Music'
 import Workdays from './pages/Workdays'
 import Quiz from './pages/Quiz'
 import More from './pages/More'
+import Reading from './pages/Reading'
+import ReadingDetail from './pages/ReadingDetail'
 import PageHeader from './components/PageHeader'
 import SiteFooter from './components/SiteFooter'
 import ScrollToTop from './components/ScrollToTop'
@@ -44,6 +46,8 @@ function App() {
             <Route path="/workdays" element={<Workdays />} />
             <Route path="/quiz" element={<Quiz />} />
             <Route path="/more" element={<More />} />
+            <Route path="/reading" element={<Reading />} />
+            <Route path="/reading/:id" element={<ReadingDetail />} />
           </Routes>
         </main>
 

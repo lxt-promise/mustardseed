@@ -131,3 +131,32 @@ input[type='range'].mint-range::-moz-range-thumb {
     radial-gradient(circle at 20% 0%, rgba(133,219,182,0.25), transparent 55%),
     linear-gradient(135deg, #ffffff 0%, #f2fbf6 100%);
 }
+
+/* === 研经日课正文排版 === */
+.prose-reading {
+  font-size: 15px;
+  line-height: 1.85;
+  color: #1a4e3a;
+}
+.prose-reading h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f3d2e;
+  margin: 1.5rem 0 0.75rem;
+}
+.prose-reading h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #15593f;
+  margin: 1.25rem 0 0.6rem;
+}
+.prose-reading p {
+  margin: 0.6rem 0;
+}
+.prose-reading blockquote {
+  margin: 0.75rem 0;
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  border-left: 3px solid #7fd3af;
+  color: #2f7a5a;
+  font-style: italic;
+}

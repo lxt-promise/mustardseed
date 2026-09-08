@@ -110,6 +110,20 @@ const funTools: Tool[] = [
     ),
   },
   {
+    to: '/reading',
+    name: '研经日课',
+    desc: '新约27卷 · 逐课研读经文',
+    color: 'from-emerald-400 to-mint-600',
+    badge: '📖 新上',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-white">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        <path d="M9 7h7M9 11h7M9 15h4" />
+      </svg>
+    ),
+  },
+  {
     to: '/more',
     name: '更多',
     desc: '版本信息 / 建议反馈',
