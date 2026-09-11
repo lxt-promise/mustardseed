@@ -22,6 +22,16 @@ export interface StudyArticle {
   answer?: string
 }
 
+/** 目录页所需的轻量元数据（不含正文 paragraphs 与 answer） */
+export interface StudyArticleMeta {
+  id: string
+  book: string
+  bookOrder: number
+  chapter: number
+  studyNo: number
+  title: string
+}
+
 export type Testament = 'ot' | 'nt'
 
 interface BookInfo {
@@ -109,11 +119,21 @@ export function getBooks(testament: Testament): BookInfo[] {
 }
 
 // 缓存
-const cache: Record<Testament, StudyArticle[] | null> = { ot: null, nt: null }
+const metaCache: Record<Testament, StudyArticleMeta[] | null> = { ot: null, nt: null }
+const fullCache: Record<Testament, StudyArticle[] | null> = { ot: null, nt: null }
 
-/** 按约加载文章数据（懒加载） */
+/** 加载目录页所需的轻量索引（仅元数据，约 60-100KB，秒开） */
+export async function loadArticlesMeta(testament: Testament): Promise<StudyArticleMeta[]> {
+  if (metaCache[testament]) return metaCache[testament]
+  const mod = await import(`./${testament}_index.json`)
+  const data = mod.default as StudyArticleMeta[]
+  metaCache[testament] = data
+  return data
+}
+
+/** 加载某约的全部文章全文（含正文与答案，体积较大，详情页按需使用） */
 export async function loadArticles(testament: Testament): Promise<StudyArticle[]> {
-  if (cache[testament]) return cache[testament]
+  if (fullCache[testament]) return fullCache[testament]
   let data: StudyArticle[]
   if (testament === 'ot') {
     const mod = await import('./ot_articles.json')
@@ -122,8 +142,32 @@ export async function loadArticles(testament: Testament): Promise<StudyArticle[]
     const mod = await import('./study_articles.json')
     data = mod.default as StudyArticle[]
   }
-  cache[testament] = data
+  fullCache[testament] = data
   return data
+}
+
+/**
+ * 按 id 加载单篇文章全文（详情页按需加载）。
+ * 策略：先查两约轻量索引（极小、秒回）定位所属约，再只加载该约全文数据。
+ */
+export async function loadArticleById(id: string): Promise<StudyArticle | undefined> {
+  const [ntMeta, otMeta] = await Promise.all([loadArticlesMeta('nt'), loadArticlesMeta('ot')])
+  const meta = ntMeta.find(a => a.id === id) ?? otMeta.find(a => a.id === id)
+  if (!meta) return undefined
+  const testament = OT_BOOKS.some(b => b.name === meta.book) ? 'ot' : 'nt'
+  const all = await loadArticles(testament)
+  return all.find(a => a.id === id)
+}
+
+/** 按 id 取相邻文章的元数据（用于详情页上一篇/下一篇，无需加载全文） */
+export async function getNeighbors(id: string): Promise<{ prev?: StudyArticleMeta; next?: StudyArticleMeta }> {
+  const [ntMeta, otMeta] = await Promise.all([loadArticlesMeta('nt'), loadArticlesMeta('ot')])
+  const all = [...ntMeta, ...otMeta]
+  const idx = all.findIndex(a => a.id === id)
+  return {
+    prev: idx > 0 ? all[idx - 1] : undefined,
+    next: idx >= 0 && idx < all.length - 1 ? all[idx + 1] : undefined,
+  }
 }
 
 /** 根据书卷名判断属于新约还是旧约 */

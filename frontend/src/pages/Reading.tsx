@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getBooks, loadArticles, OT_BOOKS, NT_BOOKS, type StudyArticle, type Testament } from '@/data/reading'
+import { getBooks, loadArticlesMeta, OT_BOOKS, NT_BOOKS, type StudyArticleMeta, type Testament } from '@/data/reading'
 import { trackEvent } from '@/utils/analytics'
 
 interface ChapterGroup {
   chapter: number
-  articles: StudyArticle[]
+  articles: StudyArticleMeta[]
 }
 
 interface BookGroup {
@@ -18,7 +18,7 @@ interface BookGroup {
 const Reading: React.FC = () => {
   const navigate = useNavigate()
   const [testament, setTestament] = useState<Testament>('nt')
-  const [articles, setArticles] = useState<StudyArticle[]>([])
+  const [articles, setArticles] = useState<StudyArticleMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedBooks, setExpandedBooks] = useState<Set<number>>(new Set())
@@ -27,7 +27,8 @@ const Reading: React.FC = () => {
     let alive = true
     setLoading(true)
     setError(null)
-    loadArticles(testament)
+    // 仅加载轻量索引（约 60-100KB），目录秒开
+    loadArticlesMeta(testament)
       .then(data => {
         if (alive) {
           setArticles(data)
@@ -44,17 +45,17 @@ const Reading: React.FC = () => {
     return () => { alive = false }
   }, [testament])
 
-  // 空闲时预加载另一约数据，消除切换等待
+  // 空闲时预加载另一约的索引（极小，消除切换等待）
   useEffect(() => {
     const other: Testament = testament === 'nt' ? 'ot' : 'nt'
-    const preload = () => { loadArticles(other).catch(() => {}) }
+    const preload = () => { loadArticlesMeta(other).catch(() => {}) }
     const ric = window.requestIdleCallback?.bind(window)
     if (ric) ric(preload, { timeout: 3000 })
     else setTimeout(preload, 1500)
   }, [testament])
 
   const books = useMemo<BookGroup[]>(() => {
-    const bookMap = new Map<number, Map<number, StudyArticle[]>>()
+    const bookMap = new Map<number, Map<number, StudyArticleMeta[]>>()
     for (const a of articles) {
       if (!bookMap.has(a.bookOrder)) bookMap.set(a.bookOrder, new Map())
       const chMap = bookMap.get(a.bookOrder)!
@@ -87,7 +88,7 @@ const Reading: React.FC = () => {
     })
   }
 
-  function openArticle(article: StudyArticle) {
+  function openArticle(article: StudyArticleMeta) {
     trackEvent('研经日课', '打开文章', article.title)
     navigate(`/reading/${encodeURIComponent(article.id)}`)
   }

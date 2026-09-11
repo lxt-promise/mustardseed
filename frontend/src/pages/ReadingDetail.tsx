@@ -1,52 +1,44 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { loadArticles, getBibleLink, type StudyArticle } from '@/data/reading'
+import { loadArticleById, getNeighbors, getBibleLink, type StudyArticle, type StudyArticleMeta } from '@/data/reading'
 import { trackEvent } from '@/utils/analytics'
 
 const ReadingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [articles, setArticles] = useState<StudyArticle[]>([])
+  const [article, setArticle] = useState<StudyArticle | null>(null)
+  const [neighbors, setNeighbors] = useState<{ prev?: StudyArticleMeta; next?: StudyArticleMeta }>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+
+  const decodedId = decodeURIComponent(id ?? '')
 
   useEffect(() => {
     let alive = true
     setLoading(true)
     setError(false)
-    // 并行加载两约（有缓存时几乎瞬时），任一失败不影响另一个
-    Promise.allSettled([loadArticles('nt'), loadArticles('ot')])
-      .then(results => {
+    setArticle(null)
+    // 只加载当前文章全文 + 相邻文章的元数据（标题/上一篇下一篇）
+    Promise.all([loadArticleById(decodedId), getNeighbors(decodedId)])
+      .then(([a, nb]) => {
         if (!alive) return
-        const all: StudyArticle[] = []
-        results.forEach(r => {
-          if (r.status === 'fulfilled') all.push(...r.value)
-        })
-        if (all.length === 0) {
+        if (!a) {
           setError(true)
         } else {
-          setArticles(all)
+          setArticle(a)
+          setNeighbors(nb)
         }
         setLoading(false)
       })
+      .catch(() => {
+        if (!alive) return
+        setError(true)
+        setLoading(false)
+      })
     return () => { alive = false }
-  }, [id])
+  }, [decodedId])
 
-  const decodedId = decodeURIComponent(id ?? '')
-
-  const article = useMemo(
-    () => articles.find(a => a.id === decodedId),
-    [articles, decodedId]
-  )
-
-  const { prev, next } = useMemo(() => {
-    const idx = articles.findIndex(a => a.id === decodedId)
-    return {
-      prev: idx > 0 ? articles[idx - 1] : null,
-      next: idx >= 0 && idx < articles.length - 1 ? articles[idx + 1] : null,
-    }
-  }, [articles, decodedId])
-
+  const { prev, next } = neighbors
   const bibleUrl = getBibleLink(article?.book ?? '', article?.chapter ?? 0, article?.title)
 
   if (loading) {
