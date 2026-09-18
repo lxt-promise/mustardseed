@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# 全离线便携包内置的 Python 运行时（约 300MB，由 pack 脚本生成，不入库）
+python/
+
+# 运行数据（上传/中间文件/成片）
+data/
+
+# 大文件：ffmpeg 与 Whisper 模型不入库（install.bat / 自动下载获取）
+ffmpeg/
+models/
+models_retry/
+
+# 本机配置（从 service.example.json 复制后按机器修改，不入库）
+service.json
+
+# 临时
+*.log
+*.tmp

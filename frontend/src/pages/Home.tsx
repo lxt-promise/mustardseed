@@ -53,6 +53,35 @@ const officeTools: Tool[] = [
       </svg>
     ),
   },
+  {
+    to: '/dub',
+    name: '视频译制',
+    desc: '英文视频 → 中文配音 + 中文字幕 · 需启动本地服务',
+    color: 'from-sky-400 to-indigo-500',
+    badge: '🖥️ 本地',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-white">
+        <path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z" />
+        <path d="m6.2 5.3 3.1 3.9" />
+        <path d="m12.4 3.4 3.1 4" />
+        <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      </svg>
+    ),
+  },
+  {
+    to: '/works',
+    name: '作品库',
+    desc: '在线观看译制好的中文配音作品，可播放可下载',
+    color: 'from-violet-400 to-fuchsia-500',
+    badge: '🎬 新上',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-white">
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none" />
+        <path d="M7 4v16M17 4v16" opacity="0" />
+      </svg>
+    ),
+  },
 ]
 
 const funTools: Tool[] = [

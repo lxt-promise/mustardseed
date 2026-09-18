@@ -1,0 +1,21 @@
+{
+  "_comment": "复制本文件为 service.json 后按需修改；留空或删除的项使用默认值。环境变量（VD_HOST/VD_PORT/VD_MODEL_DIR 等）优先级高于本文件。",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "cors_origins": ["*"],
+  "data_dir": "",
+  "model_dir": "",
+  "ffmpeg_dir": "",
+  "ffmpeg_binary": "",
+  "ffprobe_binary": "",
+  "hf_endpoint": "https://hf-mirror.com",
+  "max_upload_mb": 4096,
+
+  "_comment_publish": "作品库发布（可选）：填好后可在译制完成页一键发布成片，访客在 GitHub Pages 网站在线播放/下载。github_token 用 classic PAT 勾选 repo 权限（或细粒度 PAT 授予 Contents 读写），该文件已被 gitignore，不会提交。",
+  "github_token": "",
+  "github_repo": "lxt-promise/mustardseed",
+  "github_branch": "main",
+  "works_release_tag": "works",
+  "works_manifest_path": "frontend/public/works/works.json",
+  "pages_base_url": ""
+}

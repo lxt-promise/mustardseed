@@ -11,6 +11,8 @@ import Quiz from './pages/Quiz'
 import More from './pages/More'
 import Reading from './pages/Reading'
 import ReadingDetail from './pages/ReadingDetail'
+import Dub from './pages/Dub'
+import Works from './pages/Works'
 import PageHeader from './components/PageHeader'
 import SiteFooter from './components/SiteFooter'
 import ScrollToTop from './components/ScrollToTop'
@@ -48,6 +50,8 @@ function App() {
             <Route path="/more" element={<More />} />
             <Route path="/reading" element={<Reading />} />
             <Route path="/reading/:id" element={<ReadingDetail />} />
+            <Route path="/dub" element={<Dub />} />
+            <Route path="/works" element={<Works />} />
           </Routes>
         </main>
 

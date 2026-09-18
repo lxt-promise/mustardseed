@@ -42,6 +42,10 @@ Desktop.ini
 *.swo
 *~
 
+# ===== video-service 全离线便携包（本地分发产物，不入库） =====
+video-service-portable.zip
+video-service-portable*.zip
+
 # ===== Java backend (kept for reference only) =====
 backend/target/
 backend/.mvn/

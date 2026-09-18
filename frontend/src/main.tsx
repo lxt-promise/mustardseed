@@ -3,14 +3,19 @@ import ReactDOM from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import App from './App'
 import { initAnalytics } from './utils/analytics'
+import { initDubConfig } from './api/dub'
 import './index.css'
 
 initAnalytics()
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <HashRouter>
-      <App />
-    </HashRouter>
-  </React.StrictMode>,
-)
+// 先加载运行时配置（如视频译制服务地址），再挂载应用；
+// 配置文件缺失/超时时 initDubConfig 内部会静默回退默认值，不阻塞渲染。
+initDubConfig().finally(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <HashRouter>
+        <App />
+      </HashRouter>
+    </React.StrictMode>,
+  )
+})
