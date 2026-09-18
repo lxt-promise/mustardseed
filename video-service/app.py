@@ -46,8 +46,11 @@ app.add_middleware(
 
 
 @app.get("/")
-async def index() -> dict:
-    """根路径只用于确认服务在线，界面由芥末种子前端提供。"""
+async def index():
+    """根路径：托管了前端（web/）时返回页面，否则返回在线信息。"""
+    index_file = config.WEB_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(str(index_file))
     return {"service": "videodub", "version": app.version, "docs": "/docs"}
 
 
@@ -925,6 +928,17 @@ def _content_disposition(name: str) -> str:
     """正确处理中文文件名下载。"""
     quoted = urllib.parse.quote(name)
     return f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"
+
+
+# ---------------------------------------------------------------- 前端静态托管
+# 把构建好的前端（frontend/dist 的内容）放进 config.WEB_DIR（默认 ./web），
+# 服务即同源提供页面，浏览器直接访问 http://<host>:<port>/。
+# 必须在所有 API 路由之后挂载，未匹配 /api 的请求才落到静态文件。
+if (config.WEB_DIR / "index.html").is_file():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(config.WEB_DIR), html=True), name="web")
+    log.info("已托管前端目录：%s", config.WEB_DIR)
 
 
 @app.on_event("startup")

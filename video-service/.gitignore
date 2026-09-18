@@ -18,6 +18,9 @@ models_retry/
 # 本机配置（从 service.example.json 复制后按机器修改，不入库）
 service.json
 
+# 同源托管的前端构建产物（frontend/dist 拷贝而来，由 pack.sh 打进部署包，不入库）
+web/
+
 # 临时
 *.log
 *.tmp

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -99,6 +100,38 @@ def make_test_video() -> Path:
 
 
 def _try_make_speech_wav() -> Path | None:
+    """生成英文测试语音：Windows 用 SAPI，Linux 用 espeak(-ng)，都没有则 None。"""
+    if os.name == "nt":
+        return _try_sapi_wav()
+    return _try_espeak_wav()
+
+
+def _try_espeak_wav() -> Path | None:
+    """Linux/macOS：尝试 espeak-ng / espeak 合成英文 wav（系统通常不自带）。"""
+    wav = TEST_DIR / "en_speech.wav"
+    if wav.exists():
+        return wav
+
+    exe = shutil.which("espeak-ng") or shutil.which("espeak")
+    if not exe:
+        print("  未安装 espeak-ng（可选，apt install espeak-ng），跳过语音生成")
+        return None
+
+    text = " ".join(EN_SENTENCES)
+    try:
+        r = subprocess.run(
+            [exe, "-v", "en", "-s", "150", "-w", str(wav), text],
+            capture_output=True, text=True, timeout=120,
+        )
+        if wav.exists() and wav.stat().st_size > 1000:
+            return wav
+        print(f"  espeak 合成未产出文件：{(r.stderr or '')[:200]}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  espeak 合成失败：{exc}")
+    return None
+
+
+def _try_sapi_wav() -> Path | None:
     """尝试用 Windows SAPI 生成英文语音。"""
     wav = TEST_DIR / "en_speech.wav"
     if wav.exists():

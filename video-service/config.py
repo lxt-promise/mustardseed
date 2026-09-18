@@ -1,8 +1,8 @@
 """全局配置：路径、服务参数、常量。
 
 可移植设计：机器相关项全部写在同目录的 service.json（模板见
-service.example.json），环境变量优先级最高；所有缺省路径都相对本目录，
-因此把整个文件夹拷到任意 Windows 电脑、运行 install.bat 即可使用。
+service.example.json），环境变量优先级最高；所有缺省路径都相对本目录。
+Windows：拷贝文件夹后运行 install.bat；Linux（Ubuntu 等）：运行 install.sh。
 """
 from __future__ import annotations
 
@@ -67,6 +67,12 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 WORK_DIR = DATA_DIR / "work"
 OUTPUT_DIR = DATA_DIR / "outputs"
 TMP_DIR = DATA_DIR / "tmp"
+
+# ---------------------------------------------------------------- 前端托管目录
+# 把构建好的前端（frontend/dist 内容）放到该目录，服务即同源托管页面，
+# 浏览器直接访问 http://<host>:<port>/ 即可，避免 HTTPS 页面调 HTTP 接口
+# 被浏览器按混合内容拦截。目录不存在时只提供 API（默认形态）。
+WEB_DIR = _cfg_path("web_dir", "VD_WEB_DIR", BASE_DIR / "web")
 
 
 # ---------------------------------------------------------------- 模型目录
@@ -162,8 +168,10 @@ def setup_model_env() -> None:
     # 于是链接创建失败，snapshots/ 下退化成 0 字节空文件，
     # ctranslate2 读取时就会报 "File model.bin is incomplete"。
     # 打开这个开关后改为直接复制（或硬链接），即可正常加载。
-    os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
-    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+    # Linux 账号默认可建符号链接，保持默认（省磁盘），不要禁用。
+    if os.name == "nt":
+        os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 
 # Hugging Face 镜像（模型下载源），海外网络可改成 https://huggingface.co

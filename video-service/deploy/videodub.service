@@ -1,0 +1,21 @@
+[Unit]
+Description=MustardSeed Video Dub Service (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ---- 按实际部署路径修改下面两行（用户/目录）----
+User=ubuntu
+WorkingDirectory=/opt/video-service
+ExecStart=/opt/video-service/.venv/bin/python /opt/video-service/run.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+# 如不放系统目录，直接用普通用户家目录也可以，例如：
+# User=yourname
+# WorkingDirectory=/home/yourname/video-service
+# ExecStart=/home/yourname/video-service/.venv/bin/python /home/yourname/video-service/run.py
+
+[Install]
+WantedBy=multi-user.target

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -407,10 +408,16 @@ def build_video(
 
 
 def _escape_subtitle_path(path: str | Path) -> str:
-    """subtitles 滤镜里 Windows 路径需要转义。"""
-    p = str(Path(path).resolve()).replace("\\", "/")
-    p = p.replace(":", r"\:")
-    return p
+    """转义 subtitles 滤镜参数里的文件路径（按平台分别处理）。
+
+    Windows：反斜杠转正斜杠、盘符冒号转义；
+    Linux：路径本身无盘符，只需转义滤镜特殊字符（反斜杠/单引号），
+    常规目录（含中文目录）无需处理。
+    """
+    p = str(Path(path).resolve())
+    if os.name == "nt":
+        return p.replace("\\", "/").replace(":", r"\:")
+    return p.replace("\\", "\\\\").replace("'", r"\'")
 
 
 def mux_soft_subtitle(

@@ -49,6 +49,74 @@
 要求：Windows 10/11 + Python 3.10 ~ 3.13（脚本会自动探测系统 Python、py 启动器、
 WorkBuddy 管理的 Python，并跳过微软商店的零字节别名）。
 
+## Ubuntu / Linux 部署（服务器或桌面版）
+
+同一套代码，Windows/Linux 通用；Linux 用 `install.sh` / `start.sh`（需 Python 3.10+，
+Ubuntu 22.04 / 24.04 自带版本即可）。
+
+### 1. 打部署包（在开发机上）
+
+```bash
+# 在 video-service/ 目录（Linux 或 Windows 的 Git Bash 里运行均可）
+bash pack.sh                        # 生成 ../video-service-linux.tar.gz（不含模型）
+INCLUDE_MODELS=1 bash pack.sh       # 连同 models/ 一起打包（体积大、部署免下载）
+```
+
+> Windows 便携 `python/`、`ffmpeg/` 是 exe，Linux 用不了，打包时已自动排除；
+> Linux 的 ffmpeg / 中文字体由 `install.sh` 通过 apt 安装。
+
+### 2. 传到 Ubuntu 并安装
+
+```bash
+scp video-service-linux.tar.gz 用户名@服务器IP:~/
+# 在 Ubuntu 上：
+tar xzf video-service-linux.tar.gz
+cd video-service
+bash install.sh        # apt 装 ffmpeg + fonts-noto-cjk，建 .venv，装 pip 依赖
+```
+
+`fonts-noto-cjk` 是**烧录中文字幕的必需字体**，缺失时中文会显示成方块或烧录失败。
+
+### 3. 启动与局域网访问
+
+- 前台：`bash start.sh`（保持窗口打开，Ctrl+C 停止）
+- 安装时被询问是否开放局域网，选 `Y` 会把 `service.json` 的 `host` 改成 `0.0.0.0`；
+  事后也可手动改。
+- 防火墙（如启用 ufw）：`sudo ufw allow 8765/tcp`
+
+### 4. 让服务器同源托管前端（推荐，免混合内容问题）
+
+GitHub Pages 是 HTTPS，浏览器会拦截它直接调用 `http://服务器IP:8765`（混合内容）。
+因此在服务器上让服务**自己托管页面**，浏览器只访问一个地址：
+
+```bash
+# 把前端构建产物（frontend/dist 的内容）放到 video-service/web/
+# 并确保其中 dub-config.json 为：{ "dubApiBase": "origin" }
+# 重启服务后浏览器直接打开：
+http://<服务器IP>:8765/
+```
+
+`"origin"` 表示前端自动使用当前访问源，无需写死 IP。
+
+### 5. 后台常驻（systemd，可选）
+
+```bash
+# 按实际路径/用户编辑单元文件里的 User / WorkingDirectory / ExecStart
+sudo cp deploy/videodub.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now videodub
+sudo systemctl status videodub       # 查看状态
+journalctl -u videodub -f            # 看日志
+```
+
+### 6. 部署后自检
+
+```bash
+curl http://127.0.0.1:8765/api/health      # ffmpeg / whisper / edge-tts 状态
+fc-list :lang=zh family | head             # 应能看到 Noto Sans/Serif CJK
+.venv/bin/python selftest.py               # 端到端流水线自检（可选）
+```
+
 ## 配置文件 service.json
 
 首次运行 `install.bat` / `start.bat` 时自动从 `service.example.json` 复制生成；
@@ -66,6 +134,7 @@ WorkBuddy 管理的 Python，并跳过微软商店的零字节别名）。
 | `ffprobe_binary` | `FFPROBE_BINARY` | 空 | 同上，ffprobe |
 | `hf_endpoint` | `HF_ENDPOINT` | `https://hf-mirror.com` | 模型下载镜像；海外网络可改 `https://huggingface.co` |
 | `max_upload_mb` | `VD_MAX_UPLOAD_MB` | `4096` | 单视频上传上限（MB） |
+| `web_dir` | `VD_WEB_DIR` | `./web`（不存在则不托管） | 前端构建产物目录，存在即同源托管页面 |
 
 ffmpeg 查找优先级：`ffmpeg_binary` → `./ffmpeg/**` 与 `ffmpeg_dir` → 系统 PATH。
 全新机器也可不配本目录，直接 `winget install Gyan.FFmpeg` 装入系统 PATH。
@@ -86,12 +155,14 @@ ffmpeg 查找优先级：`ffmpeg_binary` → `./ffmpeg/**` 与 `ffmpeg_dir` → 
 
 ```
 video-service/
-├── start.bat                 启动（自动探测：包内便携 Python → venv → 系统 Python）
-├── install.bat               源码方式首次安装（建 venv + 装依赖，离线包不需要）
-├── pack.bat                  生成全离线 zip（video-service-portable.zip）
+├── start.bat / start.sh      启动（Win/Linux，自动探测便携 Python → venv → 系统 Python）
+├── install.bat / install.sh  首次安装（Win 建 venv 装依赖；Linux 另装 apt 依赖）
+├── pack.bat / pack.sh        打包（Win 全离线 zip；Linux tar.gz 源码部署包）
+├── deploy/videodub.service   systemd 后台服务单元模板（Linux）
 ├── run.py                    统一启动入口（读 service.json 起 uvicorn）
 ├── service.example.json      配置模板（入库）
 ├── service.json              本机实际配置（自动生成，已 gitignore）
+├── web/                      可选：同源托管的前端构建产物（已 gitignore）
 ├── app.py                    FastAPI 接口（CORS + 私有网络访问）
 ├── jobs.py                   任务流水线与状态机
 ├── asr.py                    识别、断句、翻译

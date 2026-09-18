@@ -29,8 +29,16 @@ export function initDubConfig(): Promise<void> {
         })
         if (res.ok) {
           const cfg = await res.json()
-          const base = (cfg?.dubApiBase ?? '').toString().trim().replace(/\/+$/, '')
-          if (base) DUB_BASE_URL = base
+          const raw = (cfg?.dubApiBase ?? '').toString().trim().replace(/\/+$/, '')
+          if (raw === 'origin' || raw === 'same-origin') {
+            // 前端由视频服务同源托管（video-service/web/）时：直接用当前源，
+            // 局域网 http://<服务器IP>:8765 访问无需改配置，也无混合内容问题。
+            if (typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)) {
+              DUB_BASE_URL = window.location.origin
+            }
+          } else if (raw) {
+            DUB_BASE_URL = raw
+          }
         }
       } catch {
         // 配置取不到就用默认本机地址

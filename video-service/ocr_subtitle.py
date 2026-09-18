@@ -105,7 +105,8 @@ def _get_ocr():
             raise RuntimeError(
                 "未安装 OCR 组件（rapidocr_onnxruntime），"
                 "请在 video-service 目录执行："
-                "python\\python.exe -m pip install rapidocr_onnxruntime"
+                "python -m pip install rapidocr_onnxruntime"
+                "（Windows 便携版用 python\\python.exe -m pip ...）"
             ) from exc
         _OCR = RapidOCR(
             use_angle_cls=False,
