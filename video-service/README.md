@@ -117,6 +117,71 @@ fc-list :lang=zh family | head             # 应能看到 Noto Sans/Serif CJK
 .venv/bin/python selftest.py               # 端到端流水线自检（可选）
 ```
 
+## 公网部署：GitHub Pages + Apache 反向代理（HTTPS 域名）
+
+适用场景：服务器有公网域名（如 `christu.bid`）和已配好 HTTPS 的 Apache（如 10085 端口），
+前端仍由 GitHub Pages 托管。浏览器要求 HTTPS 页面只能调 HTTPS 接口，所以由
+**Apache 终止 HTTPS 并反代到本机 FastAPI**，后端不直接暴露公网。
+
+```
+浏览器 ──HTTPS──> Apache :10085 (christu.bid, 证书)
+                      │ 反向代理 /api
+                      ▼
+                 FastAPI 127.0.0.1:8765（只监听本机）
+```
+
+### 1. 后端只监听本机
+
+`service.json` 保持 `"host": "127.0.0.1"`（install.sh 询问开放局域网时选 **N**），
+用 systemd 常驻（见上文第 5 节）。公网只通过 Apache 进入。
+
+### 2. 配置 Apache（核心）
+
+把 [deploy/apache-videodub.conf](deploy/apache-videodub.conf) 里的指令合并进
+**现有监听 10085 的那个 HTTPS `<VirtualHost>`**（与现有页面共存，不要整段替换）：
+
+```bash
+sudo a2enmod proxy proxy_http headers
+sudo apache2ctl configtest && sudo systemctl reload apache2
+```
+
+三个易错点（配置文件注释里也有）：
+
+- **目标必须保留 `/api` 前缀**：后端路由本身就是 `/api/xxx`，
+  `ProxyPass /api http://127.0.0.1:8765/api`（末尾**不要**加 `/`，否则 404）；
+- **大文件上传**：`LimitRequestBody 0` + `ProxyTimeout 3600`，否则 60 秒掐断；
+- **不要在 Apache 里再加 CORS 头**：后端已返回，重复头反而导致跨域失败。
+  想收紧来源就在 `service.json` 设 `"cors_origins": ["https://lxt-promise.github.io"]`。
+
+### 3. 前端地址（已配置好）
+
+GitHub Pages 上的 `dub-config.json` 已指向：
+
+```json
+{ "dubApiBase": "https://christu.bid:10085" }
+```
+
+注意**不带 `/api` 后缀**（客户端代码自己拼 `/api/...`）。合并本分支到 main 推送后，
+GitHub Pages 自动生效。部署后可用浏览器 F12 → Network 确认请求走
+`https://christu.bid:10085/api/health`。
+
+### 4. 域名 / 防火墙 / 证书
+
+- **Cloudflare 免费版不代理 10085 端口**（仅支持 443/8443 等少数端口）：
+  若域名开了橙云代理，需在 Cloudflare DNS 把该记录改成**灰云（仅 DNS）**直连；
+  或把 Apache 改到 443/8443。
+- 防火墙：`sudo ufw allow 10085/tcp`（云厂商安全组也要放行）。
+- **证书必须对 christu.bid 有效**：fetch 不像浏览器地址栏可以手动信任例外，
+  证书有问题时接口会静默失败。`curl -v https://christu.bid:10085/api/health`
+  验证应返回 JSON 且无证书报错。
+- Ubuntu 桌面版记得在电源设置里关闭自动休眠/待机。
+
+### 5. 公网安全提示
+
+该服务没有登录鉴权，知道域名的人都能调用（上传/消耗 CPU 与 TTS 配额）。
+私有使用建议：用 Cloudflare Access 或 Apache Basic Auth 给 `/api` 加一道认证；
+不要把 8765 直接监听 `0.0.0.0` 暴露公网。
+
 ## 配置文件 service.json
 
 首次运行 `install.bat` / `start.bat` 时自动从 `service.example.json` 复制生成；
