@@ -43,6 +43,7 @@ class Job:
     filename: str
     source: Path
     options: dict
+    user: str = "default"          # 归属用户（前端匿名 uid），用于任务隔离
     status: str = "pending"        # pending|running|done|failed|cancelled
     stage: str = "probe"
     stage_label: str = "等待开始"
@@ -105,9 +106,9 @@ class JobManager:
         self._lock = threading.Lock()
 
     # ---------------------------------------------------------- 增删查
-    def create(self, filename: str, source: Path, options: dict) -> Job:
+    def create(self, filename: str, source: Path, options: dict, user: str = "default") -> Job:
         jid = uuid.uuid4().hex[:12]
-        job = Job(id=jid, filename=filename, source=source, options=options)
+        job = Job(id=jid, filename=filename, source=source, options=options, user=user)
         with self._lock:
             self._jobs[jid] = job
         return job

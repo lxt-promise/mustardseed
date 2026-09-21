@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -437,6 +438,25 @@ async def upload_subtitle(file: UploadFile = File(...)) -> dict:
     }
 
 
+# ================================================================ 用户隔离
+def _user_id(request: Request) -> str:
+    """调用者身份：优先 X-User-Id 请求头（fetch/XHR 可带），
+    媒体标签（<video>/<img>）无法带自定义头，回退 ?uid= 查询参数。
+    都缺失时归入 'default'（本地单用户/命令行场景）。
+    身份是浏览器自生成的随机 uid（localStorage 持久化），非登录体系。"""
+    raw = request.headers.get("X-User-Id") or request.query_params.get("uid") or ""
+    uid = re.sub(r"[^A-Za-z0-9_-]", "", raw)[:64]
+    return uid or "default"
+
+
+def _owned_job(request: Request, jid: str) -> "jobs_mod.Job":
+    """取任务并校验归属；不属于当前用户时按不存在处理（不泄露存在性）。"""
+    job = MANAGER.get(jid)
+    if not job or job.user != _user_id(request):
+        raise HTTPException(404, "任务不存在")
+    return job
+
+
 # ================================================================ 任务
 @app.post("/api/jobs")
 async def create_job(request: Request) -> dict:
@@ -448,37 +468,40 @@ async def create_job(request: Request) -> dict:
 
     options = _normalize_options(payload)
 
-    job = MANAGER.create(payload.get("filename") or video_path.name, video_path, options)
+    job = MANAGER.create(payload.get("filename") or video_path.name, video_path, options,
+                         user=_user_id(request))
     MANAGER.start(job)
     return {"id": job.id, "status": job.status}
 
 
 @app.get("/api/jobs")
-async def list_jobs() -> dict:
+async def list_jobs(request: Request) -> dict:
+    uid = _user_id(request)
+    mine = [j for j in MANAGER.list() if j.user == uid][:50]
     return {
-        "jobs": [j.to_dict(with_segments=False) for j in MANAGER.list()[:50]],
+        "jobs": [j.to_dict(with_segments=False) for j in mine],
         "stages": [{"key": k, "label": v} for k, v in jobs_mod.STAGES],
         "disk": jobs_mod.disk_usage(),
     }
 
 
 @app.get("/api/jobs/{jid}")
-async def get_job(jid: str) -> dict:
-    job = MANAGER.get(jid)
-    if not job:
-        raise HTTPException(404, "任务不存在")
+async def get_job(jid: str, request: Request) -> dict:
+    job = _owned_job(request, jid)
     return job.to_dict()
 
 
 @app.post("/api/jobs/{jid}/cancel")
-async def cancel_job(jid: str) -> dict:
+async def cancel_job(jid: str, request: Request) -> dict:
+    _owned_job(request, jid)
     if not MANAGER.cancel(jid):
         raise HTTPException(400, "任务无法取消（可能已结束）")
     return {"ok": True}
 
 
 @app.delete("/api/jobs/{jid}")
-async def delete_job(jid: str) -> dict:
+async def delete_job(jid: str, request: Request) -> dict:
+    _owned_job(request, jid)
     if not MANAGER.remove(jid):
         raise HTTPException(400, "任务正在运行，无法删除")
     return {"ok": True}
@@ -607,10 +630,8 @@ def _download_worker(model_id: str) -> None:
 
 # ================================================================ 文件下载
 @app.get("/api/download/{jid}/{kind}")
-async def download(jid: str, kind: str):
-    job = MANAGER.get(jid)
-    if not job:
-        raise HTTPException(404, "任务不存在")
+async def download(jid: str, kind: str, request: Request):
+    job = _owned_job(request, jid)
 
     if kind == "source":
         path = job.source
@@ -637,11 +658,9 @@ async def download(jid: str, kind: str):
 
 
 @app.get("/api/preview/{jid}")
-async def preview_video(jid: str, which: int = 0):
+async def preview_video(jid: str, which: int = 0, request: Request = None):
     """在线预览产物（用于 <video> 播放）。"""
-    job = MANAGER.get(jid)
-    if not job:
-        raise HTTPException(404, "任务不存在")
+    job = _owned_job(request, jid)
     videos = [o for o in job.outputs if o["kind"] == "video"]
     if not videos:
         raise HTTPException(404, "还没有生成视频")
@@ -653,11 +672,9 @@ async def preview_video(jid: str, which: int = 0):
 
 
 @app.get("/api/preview-source/{jid}")
-async def preview_source(jid: str):
+async def preview_source(jid: str, request: Request = None):
     """在线预览原始视频（浏览器不支持的格式会自动转码）。"""
-    job = MANAGER.get(jid)
-    if not job:
-        raise HTTPException(404, "任务不存在")
+    job = _owned_job(request, jid)
 
     info = mu.probe(job.source)
     playable = info.format_name and any(
@@ -678,10 +695,8 @@ async def preview_source(jid: str):
 
 
 @app.get("/api/thumbnail/{jid}")
-async def thumbnail(jid: str, at: float = 1.0):
-    job = MANAGER.get(jid)
-    if not job:
-        raise HTTPException(404, "任务不存在")
+async def thumbnail(jid: str, at: float = 1.0, request: Request = None):
+    job = _owned_job(request, jid)
     cache = config.TMP_DIR / f"thumb_{job.id}_{at:.0f}.jpg"
     if not cache.exists():
         try:
@@ -692,8 +707,9 @@ async def thumbnail(jid: str, at: float = 1.0):
 
 
 @app.get("/api/audio/{jid}")
-async def preview_audio(jid: str):
+async def preview_audio(jid: str, request: Request = None):
     """预览生成的配音音轨。"""
+    _owned_job(request, jid)
     path = config.WORK_DIR / jid / "dub_full.wav"
     if not path.exists():
         raise HTTPException(404, "配音音轨尚未生成")
@@ -710,9 +726,7 @@ async def publish_config() -> dict:
 @app.post("/api/publish/{jid}")
 async def publish_work(jid: str, request: Request) -> dict:
     """把任务成片发布到 GitHub 作品库（上传可能耗时，放线程里跑）。"""
-    job = MANAGER.get(jid)
-    if not job:
-        raise HTTPException(404, "任务不存在")
+    job = _owned_job(request, jid)
 
     payload = {}
     try:
@@ -748,9 +762,7 @@ async def unpublish_work(wid: str) -> dict:
 @app.post("/api/segments/{jid}")
 async def update_segments(jid: str, request: Request) -> dict:
     """保存用户手工修改的字幕文本（在重新合成前调用）。"""
-    job = MANAGER.get(jid)
-    if not job:
-        raise HTTPException(404, "任务不存在")
+    job = _owned_job(request, jid)
     payload = await request.json()
     segs = payload.get("segments")
     if not isinstance(segs, list):
@@ -775,9 +787,7 @@ async def update_segments(jid: str, request: Request) -> dict:
 @app.post("/api/redo/{jid}")
 async def redo_job(jid: str, request: Request) -> dict:
     """用当前选项重跑一遍（复用已上传的视频）。"""
-    job = MANAGER.get(jid)
-    if not job:
-        raise HTTPException(404, "任务不存在")
+    job = _owned_job(request, jid)
     if job.status == "running":
         raise HTTPException(400, "任务正在运行中")
 
@@ -930,10 +940,183 @@ def _content_disposition(name: str) -> str:
     return f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"
 
 
+# ---------------------------------------------------------------- 会议记录转写
+# 录音/音频文件上传 → Whisper 转文字稿（异步任务 + 轮询），
+# 供前端「会议记录」模块调用：POST 提交音频拿任务 id，GET 轮询进度与结果。
+# 转写耗时长（1 小时音频 CPU 约需数分钟），故不走同步 HTTP。
+
+MEETING_DIR = config.BASE_DIR / "data" / "meeting"
+MEETING_ALLOWED_SUFFIXES = {
+    ".webm", ".mp3", ".m4a", ".wav", ".ogg", ".opus", ".aac", ".flac",
+    ".mp4", ".mov", ".m4v",
+}
+MEETING_MAX_MB = 200
+MEETING_MODELS = {"tiny", "base", "small", "medium", "large-v3"}
+_meeting_jobs: dict[str, dict] = {}
+_meeting_lock = threading.Lock()
+
+
+def _srt_ts(seconds: float) -> str:
+    ms = max(0, int(round(seconds * 1000)))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _purge_meeting_jobs() -> None:
+    """清理 24 小时前的旧任务及其音频/中间文件。"""
+    cutoff = time.time() - 86400
+    with _meeting_lock:
+        stale = [jid for jid, j in _meeting_jobs.items() if j["created"] < cutoff]
+        for jid in stale:
+            job = _meeting_jobs.pop(jid)
+            mu.safe_unlink(job.get("audio_path"))
+            mu.safe_unlink(job.get("wav_path"))
+
+
+def _meeting_worker(job_id: str, model_id: str, language: str | None) -> None:
+    job = _meeting_jobs.get(job_id)
+    if job is None:
+        return
+    wav_path: Path | None = None
+    try:
+        wav_path = MEETING_DIR / f"{job_id}_16k.wav"
+        job["message"] = "正在转换音频格式…"
+        mu.extract_audio(job["audio_path"], wav_path)
+        duration = mu.audio_duration(wav_path)
+
+        def on_progress(pct: float, msg: str) -> None:
+            job["progress"] = min(max(float(pct), 0.0), 1.0)
+            job["message"] = msg
+
+        segments, detected = asr.transcribe_local(
+            wav_path, model_id=model_id, language=language or None, progress=on_progress,
+        )
+        text = "\n".join(s.text for s in segments)
+        srt_blocks = [
+            f"{i}\n{_srt_ts(s.start)} --> {_srt_ts(s.end)}\n{s.text}\n"
+            for i, s in enumerate(segments, 1)
+        ]
+        job["result"] = {
+            "duration": round(duration, 1),
+            "language": detected,
+            "model": model_id,
+            "segments": [
+                {"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text}
+                for s in segments
+            ],
+            "text": text,
+            "srt": "\n".join(srt_blocks),
+        }
+        job["status"] = "done"
+        job["progress"] = 1.0
+        job["message"] = "转写完成"
+    except Exception as exc:  # noqa: BLE001
+        log.exception("会议转写任务失败 %s", job_id)
+        job["status"] = "failed"
+        job["error"] = str(exc)
+    finally:
+        if wav_path is not None:
+            mu.safe_unlink(wav_path)
+
+
+@app.post("/api/meeting/transcribe")
+async def meeting_transcribe(
+    request: Request,
+    file: UploadFile = File(...),
+    model: str = Form("small"),
+    language: str = Form(""),
+) -> dict:
+    if not file.filename:
+        raise HTTPException(400, "没有选择文件")
+    if model not in MEETING_MODELS:
+        raise HTTPException(400, f"不支持的模型：{model}")
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix and suffix not in MEETING_ALLOWED_SUFFIXES:
+        raise HTTPException(400, f"不支持的音频格式：{suffix}")
+
+    _purge_meeting_jobs()
+    job_id = _short_id()
+    dest = MEETING_DIR / f"{job_id}{suffix or '.bin'}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    size = 0
+    limit = MEETING_MAX_MB * 1024 * 1024
+    with dest.open("wb") as fh:
+        while True:
+            chunk = await file.read(1024 * 1024 * 4)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > limit:
+                fh.close()
+                mu.safe_unlink(dest)
+                raise HTTPException(413, f"音频超过 {MEETING_MAX_MB} MB 上限")
+            fh.write(chunk)
+
+    if size == 0:
+        mu.safe_unlink(dest)
+        raise HTTPException(400, "音频内容为空")
+
+    job = {
+        "id": job_id,
+        "status": "processing",
+        "progress": 0.0,
+        "message": "已接收音频，排队转写中…",
+        "audio_path": dest,
+        "wav_path": None,
+        "result": None,
+        "error": "",
+        "created": time.time(),
+        "user": _user_id(request),
+    }
+    with _meeting_lock:
+        _meeting_jobs[job_id] = job
+
+    threading.Thread(
+        target=_meeting_worker,
+        args=(job_id, model, (language or "").strip() or None),
+        daemon=True,
+        name=f"meeting-{job_id}",
+    ).start()
+
+    log.info("会议转写任务已创建 %s（%s，%.1f MB）", job_id, file.filename, size / 1048576)
+    return {"id": job_id}
+
+
+@app.get("/api/meeting/transcribe/{job_id}")
+def meeting_transcribe_status(job_id: str, request: Request) -> dict:
+    job = _meeting_jobs.get(job_id)
+    if job is None or job["user"] != _user_id(request):
+        raise HTTPException(404, "任务不存在或已过期")
+    out = {
+        "id": job["id"],
+        "status": job["status"],
+        "progress": job["progress"],
+        "message": job["message"],
+    }
+    if job["status"] == "done":
+        out["result"] = job["result"]
+    elif job["status"] == "failed":
+        out["error"] = job["error"]
+    return out
+
+
 # ---------------------------------------------------------------- 前端静态托管
 # 把构建好的前端（frontend/dist 的内容）放进 config.WEB_DIR（默认 ./web），
 # 服务即同源提供页面，浏览器直接访问 http://<host>:<port>/。
 # 必须在所有 API 路由之后挂载，未匹配 /api 的请求才落到静态文件。
+
+# 未匹配的 /api/* 统一返回 404 JSON（否则会落进下面的静态挂载，
+# POST 类请求被报成 405 Method Not Allowed，难以排查）。
+# 典型场景：前端已是新版而服务还是旧版 → 明确提示升级。
+@app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def _api_not_found(rest: str) -> dict:
+    raise HTTPException(404, f"接口不存在：/api/{rest}（服务版本可能过旧，请升级 video-service）")
+
+
 if (config.WEB_DIR / "index.html").is_file():
     from fastapi.staticfiles import StaticFiles
 

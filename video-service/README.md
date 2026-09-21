@@ -182,6 +182,38 @@ GitHub Pages 自动生效。部署后可用浏览器 F12 → Network 确认请�
 私有使用建议：用 Cloudflare Access 或 Apache Basic Auth 给 `/api` 加一道认证；
 不要把 8765 直接监听 `0.0.0.0` 暴露公网。
 
+## 用户隔离
+
+公网多人共用服务时，任务/上传互不可见：
+
+- 前端在浏览器 `localStorage` 生成匿名 uid（`vd_uid`），所有请求携带
+  `X-User-Id` 头；`<video>/<img>` 等无法带自定义头的媒体标签改用 `?uid=` 参数。
+- 服务端按 uid 过滤任务列表；单个任务的查看/取消/删除/下载/预览/缩略图/
+  文稿编辑/重跑/发布/会议转写查询都做归属校验，他人任务一律按 404 处理
+  （不泄露存在性）。无身份头的请求（命令行/本机脚本）归入 `default`。
+- 这是设备级隔离而非登录体系：uid 不可猜（UUID），但可被本机用户读走。
+  如需强鉴权，可在 Apache 层加 Basic Auth 并用 `RequestHeader set` 注入
+  `X-User-Id`（ REMOTE_USER），覆盖客户端伪造。
+- 任务仍在内存中，服务重启后清空（现状不变）；`/api/browse` 等文件浏览
+  接口仍是全局的，公网部署建议在 Apache 层限制或禁用。
+
+## 会议记录转写接口（/api/meeting/*）
+
+供前端「会议记录」模块调用（也可独立使用）：
+
+- `POST /api/meeting/transcribe`：multipart 上传音频（webm/mp3/m4a/wav/ogg/opus/aac/flac/mp4…，
+  ≤200MB），表单字段 `model`（tiny/base/small/medium/large-v3，默认 small）、`language`
+  （留空自动检测）。返回 `{"id": "..."}`，转写为后台线程异步执行。
+- `GET /api/meeting/transcribe/{id}`：轮询。返回 `status`（processing/done/failed）、
+  `progress`（0~1）、`message`；完成后含 `result`：
+  `{duration, language, model, segments:[{start,end,text}], text, srt}`。
+- 任务与音频保留 24 小时，之后在下一次上传时自动清理；中间文件在 `data/meeting/`。
+
+前端地址在 `frontend/public/meeting-config.json` 配置：`asrApiBase` 指向本服务
+（支持 `origin` 同源约定），`aiApiBase` 指向 Java backend 的大模型接口（如
+`http://localhost:8080/api`）。HTTPS 页面调 HTTP 的 aiApiBase 会被浏览器拦截，
+公网使用需为 backend 配 HTTPS 反代或在本地打开页面。
+
 ## 配置文件 service.json
 
 首次运行 `install.bat` / `start.bat` 时自动从 `service.example.json` 复制生成；
