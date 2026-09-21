@@ -14,6 +14,9 @@ import { trackEvent } from '@/utils/analytics'
 
 type Phase = 'loading' | 'offline' | 'setup' | 'running' | 'finished'
 
+// 「发布到作品库」暂时下线（2026-09-20）；显式 boolean 注解避免 TS 把该块当作不可达代码
+const SHOW_PUBLISH: boolean = false
+
 const STAGE_LABELS: Record<string, string> = {
   probe: '分析视频', extract: '分离音频', transcribe: '识别语音',
   translate: '翻译字幕', dub: '合成配音', mix: '合成视频',
@@ -142,22 +145,19 @@ const Dub: React.FC = () => {
     } catch { /* 列表刷新失败不打扰用户 */ }
   }, [])
 
-  /** 进入页面时找回后端还在跑（或刚完成）的任务，恢复进度/结果视图 */
+  /** 进入页面时只自动恢复还在跑的任务（进度不丢）；
+   *  已完成的任务不自动打开结果窗口——退出再进停留在任务列表，点"查看结果"再看 */
   const restoreJob = useCallback(async (): Promise<boolean> => {
     try {
       const { jobs } = await listJobs()
       setHistory(jobs ?? [])
-      const latest = jobs?.[0]
-      // cancelled/failed 不恢复：前者是用户主动放弃，后者重试需要上传上下文
-      if (!latest || latest.status === 'cancelled' || latest.status === 'failed') return false
+      const latest = jobs?.find(j => j.status === 'running' || j.status === 'pending')
+      // cancelled/failed/done 均不自动恢复：done 停留在任务列表（用户要求），
+      // cancelled 是用户主动放弃，failed 重试需要上传上下文
+      if (!latest) return false
       const full = await getJob(latest.id)
       setJob(full)
-      if (full.status === 'done') {
-        setEditingSegs(full.segments ?? [])
-        setPhase('finished')
-      } else {
-        setPhase('running') // pending / running：恢复进度轮询
-      }
+      setPhase('running') // pending / running：恢复进度轮询
       return true
     } catch {
       return false
@@ -905,8 +905,8 @@ const Dub: React.FC = () => {
             ))}
           </div>
 
-          {/* 发布到作品库 */}
-          {videoOutputs.length > 0 && (
+          {/* 发布到作品库（暂时隐藏，恢复时把 SHOW_PUBLISH 改回 true） */}
+          {SHOW_PUBLISH && videoOutputs.length > 0 && (
             <div className="mt-3 p-3 rounded-xl border border-violet-100 bg-violet-50/50">
               {published ? (
                 <div>

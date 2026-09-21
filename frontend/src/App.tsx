@@ -12,6 +12,7 @@ import More from './pages/More'
 import Reading from './pages/Reading'
 import ReadingDetail from './pages/ReadingDetail'
 import Dub from './pages/Dub'
+import Meeting from './pages/Meeting'
 import Works from './pages/Works'
 import PageHeader from './components/PageHeader'
 import SiteFooter from './components/SiteFooter'
@@ -51,6 +52,7 @@ function App() {
             <Route path="/reading" element={<Reading />} />
             <Route path="/reading/:id" element={<ReadingDetail />} />
             <Route path="/dub" element={<Dub />} />
+            <Route path="/meeting" element={<Meeting />} />
             <Route path="/works" element={<Works />} />
           </Routes>
         </main>

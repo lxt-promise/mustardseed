@@ -185,6 +185,27 @@ export interface JobOptions {
   edited_segments?: Segment[]
 }
 
+// --------------------------------------------------------------- 用户隔离
+// 浏览器自生成匿名 uid（localStorage 持久化），用于服务端任务隔离：
+// fetch/XHR 走 X-User-Id 头；<video>/<img> 等媒体标签无法带自定义头，走 ?uid= 参数。
+const DUB_UID_KEY = 'vd_uid'
+
+export function dubUserId(): string {
+  let uid = localStorage.getItem(DUB_UID_KEY) || ''
+  if (!uid) {
+    uid =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `u-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+    localStorage.setItem(DUB_UID_KEY, uid)
+  }
+  return uid
+}
+
+function withUid(url: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}uid=${encodeURIComponent(dubUserId())}`
+}
+
 // --------------------------------------------------------------- 请求封装
 async function request<T>(path: string, init?: RequestInit, timeoutMs = 30000): Promise<T> {
   const ctrl = new AbortController()
@@ -192,6 +213,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30000): 
   try {
     const res = await fetch(`${DUB_BASE_URL}${path}`, {
       ...init,
+      headers: { 'X-User-Id': dubUserId(), ...(init?.headers || {}) },
       signal: ctrl.signal,
     })
     if (!res.ok) {
@@ -224,6 +246,7 @@ export async function uploadVideo(file: File, onProgress?: (pct: number) => void
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${DUB_BASE_URL}/api/upload`)
+    xhr.setRequestHeader('X-User-Id', dubUserId())
     xhr.timeout = 0
     xhr.upload.onprogress = e => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total)
@@ -312,20 +335,21 @@ export async function previewVoice(text: string, voice: string, rate = 0, volume
 }
 
 // --------------------------------------------------------------- 文件 URL
+// 媒体标签无法带请求头，归属身份用 ?uid= 传递
 export function previewVideoUrl(jobId: string, which = 0): string {
-  return `${DUB_BASE_URL}/api/preview/${jobId}?which=${which}&t=${Date.now()}`
+  return withUid(`${DUB_BASE_URL}/api/preview/${jobId}?which=${which}&t=${Date.now()}`)
 }
 
 export function thumbnailUrl(jobId: string): string {
-  return `${DUB_BASE_URL}/api/thumbnail/${jobId}`
+  return withUid(`${DUB_BASE_URL}/api/thumbnail/${jobId}`)
 }
 
 export function downloadUrl(jobId: string, index: number): string {
-  return `${DUB_BASE_URL}/api/download/${jobId}/${index}`
+  return withUid(`${DUB_BASE_URL}/api/download/${jobId}/${index}`)
 }
 
 export function previewSourceUrl(jobId: string): string {
-  return `${DUB_BASE_URL}/api/preview-source/${jobId}`
+  return withUid(`${DUB_BASE_URL}/api/preview-source/${jobId}`)
 }
 
 // --------------------------------------------------------------- 作品库发布
