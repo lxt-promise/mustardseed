@@ -56,6 +56,13 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- 智谱 AI（GLM 大模型）SDK：同步/流式对话，流式基于其传递的 RxJava3 -->
+        <dependency>
+            <groupId>ai.z.openapi</groupId>
+            <artifactId>zai-sdk</artifactId>
+            <version>0.3.5</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

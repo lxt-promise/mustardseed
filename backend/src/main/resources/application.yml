@@ -47,3 +47,16 @@ mybatis-plus:
 music:
   upload-dir: ./uploads
   file-base-url: http://localhost:8080/api/files
+  # 智谱 AI（GLM）大模型配置
+  # api-key 优先读环境变量 AI_API_KEY；也可直接把密钥写在下面
+  ai:
+    enabled: true
+    api-key: ${AI_API_KEY:67eb8fcad9dd43d7bf9a79fb862dff34.NXIqbMScEEc6w0oZ}
+    # glm-4.7-flash 为思考模型；若提示“访问量过大/429”可换免费高并发档 glm-4-flash（并设 thinking-enabled: false）
+    model: glm-4.7-flash
+    # 默认系统提示词（请求中传 systemPrompt 可覆盖）
+    system-prompt: "你是「音乐管家」的 AI 助手，熟悉音乐知识、歌曲、歌手与歌单管理。请用简洁友好的中文回答用户问题，并可结合音乐场景给出建议。"
+    max-tokens: 4096
+    temperature: 0.8
+    # 深度思考开关（glm-4-flash 等非思考模型需设为 false）
+    thinking-enabled: true
