@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { loadArticleById, getNeighbors, getBibleLink, type StudyArticle, type StudyArticleMeta } from '@/data/reading'
+import { loadArticleById, getNeighbors, prefetchArticleById, getBibleLink, type StudyArticle, type StudyArticleMeta } from '@/data/reading'
 import { trackEvent } from '@/utils/analytics'
 
 const ReadingDetail: React.FC = () => {
@@ -27,6 +27,8 @@ const ReadingDetail: React.FC = () => {
         } else {
           setArticle(a)
           setNeighbors(nb)
+          // 空闲预读下一篇所属书卷，点"下一篇"时大概率直接命中缓存
+          if (nb.next) prefetchArticleById(nb.next.id)
         }
         setLoading(false)
       })
@@ -45,8 +47,8 @@ const ReadingDetail: React.FC = () => {
     return (
       <div className="text-center py-20 text-mint-600/60">
         <div className="text-4xl mb-3 animate-pulse">📖</div>
-        <p className="text-sm mb-1">正在加载…</p>
-        <p className="text-xs text-mint-400">首次打开需稍候片刻</p>
+        <p className="text-sm mb-1">正在打开书卷…</p>
+        <p className="text-xs text-mint-400">仅下载当前书卷内容</p>
       </div>
     )
   }
