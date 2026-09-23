@@ -118,20 +118,22 @@ export function getBooks(testament: Testament): BookInfo[] {
   return testament === 'ot' ? OT_BOOKS : NT_BOOKS
 }
 
-// --------------------------------------------------------------- 分卷懒加载
-// 全文按书卷拆成 articles/<ot|nt>/<bookOrder>.json（由 scripts/split_books.mjs 生成）。
-// import.meta.glob 让 Vite 为每卷输出独立 chunk：点开一篇只下载对应书卷（几十~几百 KB），
-// 而非整约 8MB+；chunk 带内容哈希，浏览器可长期缓存，二次打开同一卷零网络开销。
-const otBookModules = import.meta.glob<StudyArticle[]>('./articles/ot/*.json', { import: 'default' })
-const ntBookModules = import.meta.glob<StudyArticle[]>('./articles/nt/*.json', { import: 'default' })
+// --------------------------------------------------------------- 分章懒加载
+// 全文按 书卷/章节 拆成 articles/<ot|nt>/<bookOrder>/<chapter>.json
+// （由 scripts/split_books.mjs 生成；同章多篇归同一块，chapter=0 为卷导言）。
+// import.meta.glob 让 Vite 为每章输出独立 chunk：点开一篇只下载那一章（约 5-10KB），
+// chunk 带内容哈希，浏览器可长期缓存，二次打开同一章零网络开销。
+const otChapterModules = import.meta.glob<StudyArticle[]>('./articles/ot/**/*.json', { import: 'default' })
+const ntChapterModules = import.meta.glob<StudyArticle[]>('./articles/nt/**/*.json', { import: 'default' })
 
 function modulesOf(testament: Testament) {
-  return testament === 'ot' ? otBookModules : ntBookModules
+  return testament === 'ot' ? otChapterModules : ntChapterModules
 }
 
-/** 按约的卷缓存（内存，会话内复用）与在途请求去重 */
-const bookCache: Record<Testament, Map<number, StudyArticle[]>> = { ot: new Map(), nt: new Map() }
-const bookPending: Record<Testament, Map<number, Promise<StudyArticle[]>>> = { ot: new Map(), nt: new Map() }
+/** 章缓存 key：bookOrder/chapter；内存缓存（会话内复用）+ 在途请求去重 */
+type ChapterKey = string
+const chapterCache: Record<Testament, Map<ChapterKey, StudyArticle[]>> = { ot: new Map(), nt: new Map() }
+const chapterPending: Record<Testament, Map<ChapterKey, Promise<StudyArticle[]>>> = { ot: new Map(), nt: new Map() }
 
 const metaCache: Record<Testament, StudyArticleMeta[] | null> = { ot: null, nt: null }
 
@@ -144,38 +146,60 @@ export async function loadArticlesMeta(testament: Testament): Promise<StudyArtic
   return data
 }
 
-/** 仅加载某一卷的全文（按卷缓存 + 并发去重） */
-export function loadBook(testament: Testament, bookOrder: number): Promise<StudyArticle[]> {
-  const cached = bookCache[testament].get(bookOrder)
+/**
+ * 进站预热：空闲时提前拉取新旧约目录索引（合计约 160KB），
+ * 点进研经日课时直接命中缓存，目录秒开。静默失败，不影响其他功能。
+ */
+export function prewarmReadingIndex(): void {
+  const run = () => {
+    Promise.all([loadArticlesMeta('ot'), loadArticlesMeta('nt')]).catch(() => { /* 预热失败无感知 */ })
+  }
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(run, { timeout: 4000 })
+  } else if (typeof window !== 'undefined') {
+    window.addEventListener('load', () => setTimeout(run, 1200), { once: true })
+  }
+}
+
+/** 仅加载某一卷中某一章的全文（按章缓存 + 并发去重，单块约 5-10KB） */
+export function loadChapter(testament: Testament, bookOrder: number, chapter: number): Promise<StudyArticle[]> {
+  const key: ChapterKey = `${bookOrder}/${chapter}`
+  const cached = chapterCache[testament].get(key)
   if (cached) return Promise.resolve(cached)
-  const pending = bookPending[testament].get(bookOrder)
+  const pending = chapterPending[testament].get(key)
   if (pending) return pending
 
-  const loader = modulesOf(testament)[`./articles/${testament}/${bookOrder}.json`]
+  const loader = modulesOf(testament)[`./articles/${testament}/${bookOrder}/${chapter}.json`]
   const promise = loader
     ? loader().then(rows => {
-        bookCache[testament].set(bookOrder, rows)
+        chapterCache[testament].set(key, rows)
         return rows
-      }).finally(() => bookPending[testament].delete(bookOrder))
-    : Promise.reject(new Error(`缺少书卷数据：${testament}/${bookOrder}（请运行 scripts/split_books.mjs）`))
-  bookPending[testament].set(bookOrder, promise)
+      }).finally(() => chapterPending[testament].delete(key))
+    : Promise.reject(new Error(`缺少章节数据：${testament}/${bookOrder}/${chapter}（请运行 scripts/split_books.mjs）`))
+  chapterPending[testament].set(key, promise)
   return promise
+}
+
+/** 按元数据预取某篇所在章（hover/触摸列表项或空闲预读下一篇时调用） */
+export function prefetchChapter(meta: StudyArticleMeta): void {
+  const testament = OT_BOOKS.some(b => b.name === meta.book) ? 'ot' : 'nt'
+  loadChapter(testament, meta.bookOrder, meta.chapter).catch(() => { /* 预取失败无感知 */ })
 }
 
 /**
  * 按 id 加载单篇文章全文（详情页按需加载）。
- * 策略：先查两约轻量索引（极小、秒回）定位所属约与书卷，再只下载该一卷的数据。
+ * 策略：先查两约轻量索引定位所属约/书卷/章，再只下载该一章的数据。
  */
 export async function loadArticleById(id: string): Promise<StudyArticle | undefined> {
   const [ntMeta, otMeta] = await Promise.all([loadArticlesMeta('nt'), loadArticlesMeta('ot')])
   const meta = ntMeta.find(a => a.id === id) ?? otMeta.find(a => a.id === id)
   if (!meta) return undefined
   const testament = OT_BOOKS.some(b => b.name === meta.book) ? 'ot' : 'nt'
-  const rows = await loadBook(testament, meta.bookOrder)
+  const rows = await loadChapter(testament, meta.bookOrder, meta.chapter)
   return rows.find(a => a.id === id)
 }
 
-/** 空闲预读某篇文章所属卷（用于详情页提前缓存"下一篇"，静默失败） */
+/** 空闲预读某篇文章所属章（用于详情页提前缓存"下一篇"，静默失败） */
 export function prefetchArticleById(id: string): void {
   const run = () => {
     loadArticleById(id).catch(() => { /* 预读失败无感知 */ })

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { loadArticleById, getNeighbors, prefetchArticleById, getBibleLink, type StudyArticle, type StudyArticleMeta } from '@/data/reading'
+import { loadArticleById, getNeighbors, prefetchChapter, getBibleLink, type StudyArticle, type StudyArticleMeta } from '@/data/reading'
 import { trackEvent } from '@/utils/analytics'
 
 const ReadingDetail: React.FC = () => {
@@ -27,8 +27,8 @@ const ReadingDetail: React.FC = () => {
         } else {
           setArticle(a)
           setNeighbors(nb)
-          // 空闲预读下一篇所属书卷，点"下一篇"时大概率直接命中缓存
-          if (nb.next) prefetchArticleById(nb.next.id)
+          // 空闲预读下一篇所属章（单块仅几 KB），点"下一篇"直接命中缓存
+          if (nb.next) prefetchChapter(nb.next)
         }
         setLoading(false)
       })

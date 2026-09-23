@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getBooks, loadArticlesMeta, OT_BOOKS, NT_BOOKS, type StudyArticleMeta, type Testament } from '@/data/reading'
+import { getBooks, loadArticlesMeta, prefetchChapter, OT_BOOKS, NT_BOOKS, type StudyArticleMeta, type Testament } from '@/data/reading'
 import { trackEvent } from '@/utils/analytics'
 
 interface ChapterGroup {
@@ -219,6 +219,8 @@ const Reading: React.FC = () => {
                           <button
                             key={article.id}
                             onClick={() => openArticle(article)}
+                            onMouseEnter={() => prefetchChapter(article)}
+                            onPointerDown={() => prefetchChapter(article)}
                             className="btn-press w-full text-left px-4 py-2.5 hover:bg-mint-50/50 transition-colors flex items-center gap-3"
                           >
                             <span className="w-6 h-6 rounded-md bg-mint-50 text-mint-600 text-[11px] font-semibold flex items-center justify-center shrink-0">

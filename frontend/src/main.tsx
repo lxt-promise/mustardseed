@@ -5,6 +5,7 @@ import App from './App'
 import { initAnalytics } from './utils/analytics'
 import { initDubConfig } from './api/dub'
 import { initMeetingConfig } from './api/meeting'
+import { prewarmReadingIndex } from './data/reading'
 import './index.css'
 
 initAnalytics()
@@ -19,4 +20,6 @@ Promise.all([initDubConfig(), initMeetingConfig()]).finally(() => {
       </HashRouter>
     </React.StrictMode>,
   )
+  // 首屏渲染后空闲预热研经日课目录索引（约 160KB），进入模块即秒开
+  prewarmReadingIndex()
 })
