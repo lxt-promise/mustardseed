@@ -22,9 +22,13 @@ import config
 import dubbing
 import ocr_subtitle
 import media_utils as mu
-from config import OUTPUT_DIR, UPLOAD_DIR, WORK_DIR
+from config import DATA_DIR, OUTPUT_DIR, UPLOAD_DIR, WORK_DIR
 
 log = logging.getLogger("videodub.jobs")
+
+# --------------------------------------------------------------- 持久化
+# 任务状态落盘，服务重启后按用户恢复历史。running 状态重启后视为 failed。
+JOBS_DB = DATA_DIR / "jobs.json"
 
 
 STAGES = [
@@ -68,6 +72,10 @@ class Job:
     # 取消标记
     cancelled: bool = False
 
+    # 已发布到视频库（所有人可见）
+    published: bool = False
+    published_at: float = 0.0
+
     def to_dict(self, with_segments: bool = True) -> dict:
         d = {
             "id": self.id,
@@ -86,6 +94,8 @@ class Job:
             "finished_at": self.finished_at,
             "stage_timings": {k: round(v, 1) for k, v in self.stage_timings.items()},
             "total_seconds": round(self.total_seconds, 1),
+            "published": self.published,
+            "published_at": self.published_at,
             "options": {k: v for k, v in self.options.items()
                         if k not in ("cloud_api_key",)},
         }
@@ -104,6 +114,83 @@ class JobManager:
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
+        self._load()
+
+    # -------------------------------------------------------- 持久化
+    def _load(self) -> None:
+        """启动时从 jobs.json 恢复历史任务；文件缺失/损坏时忽略。"""
+        if not JOBS_DB.exists():
+            return
+        try:
+            raw = json.loads(JOBS_DB.read_text(encoding="utf-8"))
+            count = 0
+            for d in raw.get("jobs", []):
+                # 运行中被中断的任务标记为失败
+                if d.get("status") == "running":
+                    d["status"] = "failed"
+                    d["stage_label"] = "服务重启中断"
+                    d["error"] = d.get("error") or "服务重启中断"
+                    d["message"] = "服务重启中断"
+                try:
+                    job = Job(
+                        id=d["id"], filename=d["filename"],
+                        source=Path(d["source"]), options=d.get("options", {}),
+                        user=d.get("user", "default"),
+                    )
+                    job.status = d.get("status", "failed")
+                    job.stage = d.get("stage", "probe")
+                    job.stage_label = d.get("stage_label", "")
+                    job.progress = d.get("progress", 0.0)
+                    job.message = d.get("message", "")
+                    job.error = d.get("error", "")
+                    job.created_at = d.get("created_at", 0.0)
+                    job.finished_at = d.get("finished_at", 0.0)
+                    job.media = d.get("media", {})
+                    job.segments = d.get("segments", [])
+                    job.plan = d.get("plan", {})
+                    job.outputs = d.get("outputs", [])
+                    job.logs = d.get("logs", [])
+                    job.stage_timings = d.get("stage_timings", {})
+                    job.total_seconds = d.get("total_seconds", 0.0)
+                    job.published = d.get("published", False)
+                    job.published_at = d.get("published_at", 0.0)
+                    self._jobs[job.id] = job
+                    count += 1
+                except (KeyError, ValueError) as exc:  # noqa: BLE001
+                    log.warning("跳过损坏的任务记录：%s (%s)", d.get("id"), exc)
+            log.info("已从 jobs.json 恢复 %d 个任务", count)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("读取 jobs.json 失败，忽略历史：%s", exc)
+
+    def _save(self) -> None:
+        """把所有任务写盘（自带锁）。失败仅记日志，不影响主流程。"""
+        with self._lock:
+            try:
+                JOBS_DB.parent.mkdir(parents=True, exist_ok=True)
+                jobs = [j.to_dict(with_segments=False) for j in self._jobs.values()]
+                # 补充 to_dict 未包含的字段
+                for j, job in zip(jobs, list(self._jobs.values())):
+                    j["source"] = str(job.source)
+                    j["user"] = job.user
+                tmp = JOBS_DB.with_suffix(".json.tmp")
+                tmp.write_text(
+                    json.dumps({"jobs": jobs}, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                tmp.replace(JOBS_DB)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("保存 jobs.json 失败：%s", exc)
+
+    def set_published(self, jid: str, published: bool) -> Job | None:
+        """发布/取消发布到视频库。返回更新后的任务，不存在返回 None。"""
+        with self._lock:
+            job = self._jobs.get(jid)
+            if not job:
+                return None
+            job.published = published
+            job.published_at = time.time() if published else 0.0
+        self._save()
+        return job
 
     # ---------------------------------------------------------- 增删查
     def create(self, filename: str, source: Path, options: dict, user: str = "default") -> Job:
@@ -138,6 +225,7 @@ class JobManager:
         with self._lock:
             self._jobs.pop(jid, None)
         shutil.rmtree(WORK_DIR / jid, ignore_errors=True)
+        self._save()
         return True
 
     # ---------------------------------------------------------- 执行
@@ -197,6 +285,7 @@ class JobManager:
                 job.status = "failed"
                 job.error = job.error or "任务异常结束"
                 job.stage_label = "处理失败"
+            self._save()
 
     # ---------------------------------------------------------- 流水线
     def _pipeline(self, job: Job) -> None:

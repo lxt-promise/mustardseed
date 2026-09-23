@@ -5,17 +5,16 @@ import {
   uploadVideo, uploadSubtitle,
   createJob, getJob, listJobs, cancelJob, deleteJob, saveSegments, redoJob, previewVoice,
   previewVideoUrl, downloadUrl,
-  fetchPublishConfig, publishWork,
+  setWorkPublished,
   type HealthInfo, type OptionsInfo, type UploadResult,
   type JobInfo, type Segment, type JobOptions, type Voice, type WhisperModel,
-  type PublishConfig, type WorkInfo,
 } from '@/api/dub'
 import { trackEvent } from '@/utils/analytics'
 
 type Phase = 'loading' | 'offline' | 'setup' | 'running' | 'finished'
 
-// 「发布到作品库」暂时下线（2026-09-20）；显式 boolean 注解避免 TS 把该块当作不可达代码
-const SHOW_PUBLISH: boolean = false
+// 「发布到视频库」：处理完成后可选择发布，所有人可在视频库看到
+const SHOW_PUBLISH: boolean = true
 
 const STAGE_LABELS: Record<string, string> = {
   probe: '分析视频', extract: '分离音频', transcribe: '识别语音',
@@ -109,8 +108,9 @@ const Dub: React.FC = () => {
   const [useEmbedded, setUseEmbedded] = useState(false)
   // 字幕已是中文模式：跳过语音识别与翻译（英文视频 + 现成中文字幕）
   const [subAlreadyZh, setSubAlreadyZh] = useState(false)
-  // 硬字幕 OCR：字幕烧录在画面里时，用 OCR 提取代替语音识别
-  const [ocrHardSub, setOcrHardSub] = useState(false)
+  // 字幕/对白来源（必选，防止漏选硬字幕 OCR 导致整条流水线白跑）：
+  // audio=音轨对白听写（Whisper，常规视频）；ocr=画面烧录字幕用 OCR 提取（较慢）
+  const [subSource, setSubSource] = useState<'audio' | 'ocr' | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [cloudBase, setCloudBase] = useState('')
   const [cloudKey, setCloudKey] = useState('')
@@ -124,14 +124,9 @@ const Dub: React.FC = () => {
   const [error, setError] = useState('')
   // 历史任务清单（后端内存列表，按时间倒序）
   const [history, setHistory] = useState<JobInfo[]>([])
-  // 作品库发布
-  const [pubCfg, setPubCfg] = useState<PublishConfig | null>(null)
-  const [pubOpen, setPubOpen] = useState(false)
-  const [pubTitle, setPubTitle] = useState('')
-  const [pubNote, setPubNote] = useState('')
+  // 本地视频库发布（发布状态随 job 轮询自动刷新，无需单独 state）
   const [publishing, setPublishing] = useState(false)
   const [pubError, setPubError] = useState('')
-  const [published, setPublished] = useState<WorkInfo | null>(null)
   const pollRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const subInputRef = useRef<HTMLInputElement>(null)
@@ -210,6 +205,7 @@ const Dub: React.FC = () => {
     setUploadPct(0)
     setSubInfo(null)
     setUseEmbedded(false)
+    setSubSource(null)
     try {
       const r = await uploadVideo(file, pct => setUploadPct(pct))
       setUpload(r)
@@ -260,7 +256,8 @@ const Dub: React.FC = () => {
       use_embedded_subtitle: useEmbedded,
       subtitle_file: subInfo?.path ?? '',
       subtitles_already_zh: subAlreadyZh,
-      ocr_hard_subtitle: ocrHardSub,
+      // 选了外挂字幕或内嵌字幕轨时，来源已确定，OCR 标志不生效
+      ocr_hard_subtitle: subSource === 'ocr' && !subInfo && !useEmbedded,
       ...(engine === 'cloud' ? {
         cloud_base_url: cloudBase,
         cloud_api_key: cloudKey,
@@ -277,10 +274,14 @@ const Dub: React.FC = () => {
     }
   }, [engine, whisperModel, sourceLang, voice, rate, volume, autoFit,
       burnSub, softSub, bilingual, bgmMode, bgmVolume, bgmDucking, useEmbedded, subInfo,
-      subAlreadyZh, ocrHardSub, cloudBase, cloudKey, cloudModel])
+      subAlreadyZh, subSource, cloudBase, cloudKey, cloudModel])
 
   const startJob = useCallback(async (edited?: Segment[]) => {
     if (!upload) return
+    if (!subInfo && !useEmbedded && !subSource) {
+      setError('请先选择「对白/字幕来源」')
+      return
+    }
     setError('')
     setBusy(true)
     try {
@@ -297,7 +298,7 @@ const Dub: React.FC = () => {
     } finally {
       setBusy(false)
     }
-  }, [upload, buildOptions, refreshHistory])
+  }, [upload, buildOptions, refreshHistory, subInfo, useEmbedded, subSource])
 
   // ------------------------------------------------------------ 操作
   /** 查看历史任务：加载完整信息并进入对应视图 */
@@ -377,47 +378,34 @@ const Dub: React.FC = () => {
     }
   }
 
-  // 任务完成后：加载发布配置并初始化作品标题
+  // 进入完成页时清空发布操作的临时状态
   useEffect(() => {
     if (phase !== 'finished' || !job) return
-    let alive = true
-    setPublished(null); setPubOpen(false); setPubError(''); setPublishing(false)
-    setPubTitle(job.filename.replace(/\.[^.]+$/, ''))
-    fetchPublishConfig()
-      .then(cfg => { if (alive) setPubCfg(cfg) })
-      .catch(() => { if (alive) setPubCfg(null) })
-    return () => { alive = false }
+    setPubError(''); setPublishing(false)
     // job 每次轮询都会变，这里只按任务 id 跑一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, job?.id])
 
-  const onPublish = async () => {
+  const togglePublish = async () => {
     if (!job || publishing) return
-    if (pubCfg && !pubCfg.configured) {
-      setPubError('')
-      setPubOpen(true)
-      return
-    }
     setPublishing(true); setPubError('')
     try {
-      const res = await publishWork(job.id, {
-        title: pubTitle.trim() || job.filename.replace(/\.[^.]+$/, ''),
-        note: pubNote.trim(),
-      })
-      setPublished(res.work)
-      setPubOpen(false)
-      trackEvent('作品库', '发布', res.work.id)
+      const next = !job.published
+      await setWorkPublished(job.id, next)
+      const fresh = await getJob(job.id)
+      setJob(fresh)
+      trackEvent('作品库', next ? '发布' : '取消发布', job.id)
     } catch (e) {
-      setPubError(e instanceof Error ? e.message : '发布失败')
+      setPubError(e instanceof Error ? e.message : '操作失败')
     } finally {
       setPublishing(false)
     }
   }
 
   const resetAll = () => {
-    setJob(null); setUpload(null); setSubInfo(null); setEditingSegs([])
+    setJob(null); setUpload(null); setSubInfo(null); setEditingSegs([]); setSubSource(null)
     setShowEditor(false); setError(''); setPhase('setup')
-    setPublished(null); setPubOpen(false); setPubError('')
+    setPubError('')
   }
 
   const voiceGroups = useMemo(() => opts?.locale_groups ?? [], [opts])
@@ -532,67 +520,13 @@ const Dub: React.FC = () => {
                     {upload.meta.subtitle_streams > 0 && ` · 含 ${upload.meta.subtitle_streams} 条内嵌字幕`}
                   </p>
                   <button
-                    onClick={() => { setUpload(null); setSubInfo(null); setUseEmbedded(false) }}
+                    onClick={() => { setUpload(null); setSubInfo(null); setUseEmbedded(false); setSubSource(null) }}
                     className="text-xs text-mint-600 hover:underline mt-1"
                   >重新选择</button>
                 </div>
               </div>
             )}
 
-            {/* 字幕来源 */}
-            {upload && (
-              <div className="mt-3 space-y-2">
-                <input
-                  ref={subInputRef}
-                  type="file"
-                  accept=".srt,.vtt,.ass,.ssa"
-                  className="hidden"
-                  onChange={e => e.target.files?.[0] && handleSubtitle(e.target.files[0])}
-                />
-                <button
-                  onClick={() => subInputRef.current?.click()}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:border-mint-300 hover:text-mint-700"
-                >
-                  {subInfo ? `📝 外挂字幕：${subInfo.filename}（${subInfo.count} 条，点击替换）` : '📝 上传外挂字幕（可选，最准最快）'}
-                </button>
-                {upload.meta.subtitle_streams > 0 && (
-                  <label className="flex items-center gap-2 text-xs text-stone-600 ml-2">
-                    <input type="checkbox" checked={useEmbedded} onChange={e => setUseEmbedded(e.target.checked)}
-                      className="accent-mint-600" />
-                    使用视频内嵌字幕（{upload.meta.subtitle_names.join('、') || `${upload.meta.subtitle_streams} 条`}）
-                  </label>
-                )}
-                {upload && (
-                  <label className="flex items-start gap-2 text-xs text-stone-600 ml-2 cursor-pointer">
-                    <input type="checkbox" checked={ocrHardSub} onChange={e => setOcrHardSub(e.target.checked)}
-                      className="accent-mint-600 mt-0.5" />
-                    <span>
-                      字幕已烧录在画面中，用 OCR 提取（速度较慢）
-                      <span className="block text-[11px] text-stone-400">
-                        没有字幕文件时的选择：从画面识别字幕文字，中文/英文均可，自动跳过翻译环节
-                      </span>
-                    </span>
-                  </label>
-                )}
-                {subInfo && (
-                  <label className="flex items-start gap-2 text-xs text-stone-600 ml-2 cursor-pointer">
-                    <input type="checkbox" checked={subAlreadyZh} onChange={e => setSubAlreadyZh(e.target.checked)}
-                      className="accent-mint-600 mt-0.5" />
-                    <span>
-                      字幕已是中文，跳过识别与翻译
-                      <span className="block text-[11px] text-stone-400">
-                        适合英文视频 + 现成中文字幕：直接按字幕配音，最快且零翻译额度
-                      </span>
-                    </span>
-                  </label>
-                )}
-                {subInfo && (
-                  <button onClick={() => { setSubInfo(null); setSubAlreadyZh(false) }} className="text-xs text-stone-400 hover:text-red-500 ml-2">
-                    移除字幕
-                  </button>
-                )}
-              </div>
-            )}
           </Card>
 
           {/* 识别设置 */}
@@ -642,9 +576,6 @@ const Dub: React.FC = () => {
                         : <>📐 已按你的视频实际大小（{modelHint.sizeText}）自动选择「{modelHint.cur}」，可手动调整</>}
                     </p>
                   )}
-                  <p className="text-[11px] text-stone-400 mt-1 leading-relaxed">
-                    下拉项里的 MB 是模型文件本身的下载体积（固定值，和视频无关）；实际用哪个档位由上方你的视频大小自动推荐。
-                  </p>
                 </Field>
               ) : (
                 <div className="mt-3 grid grid-cols-1 gap-2">
@@ -656,6 +587,78 @@ const Dub: React.FC = () => {
                     value={cloudModel} onChange={e => setCloudModel(e.target.value)} />
                 </div>
               )}
+
+              {/* 字幕来源：外挂字幕 / 内嵌字幕 / 对白与画面来源必选 */}
+              <div className="border-t border-stone-100 pt-3 mt-3 space-y-2">
+                <input
+                  ref={subInputRef}
+                  type="file"
+                  accept=".srt,.vtt,.ass,.ssa"
+                  className="hidden"
+                  onChange={e => e.target.files?.[0] && handleSubtitle(e.target.files[0])}
+                />
+                <button
+                  onClick={() => subInputRef.current?.click()}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 hover:border-mint-300 hover:text-mint-700"
+                >
+                  {subInfo ? `📝 外挂字幕：${subInfo.filename}（${subInfo.count} 条，点击替换）` : '📝 上传外挂字幕（可选，最准最快）'}
+                </button>
+                {upload.meta.subtitle_streams > 0 && (
+                  <label className="flex items-center gap-2 text-xs text-stone-600 ml-2">
+                    <input type="checkbox" checked={useEmbedded} onChange={e => setUseEmbedded(e.target.checked)}
+                      className="accent-mint-600" />
+                    使用视频内嵌字幕（{upload.meta.subtitle_names.join('、') || `${upload.meta.subtitle_streams} 条`}）
+                  </label>
+                )}
+                {!subInfo && !useEmbedded && (
+                  <div className="ml-2">
+                    <p className="text-xs text-stone-600 mb-1.5 font-medium">
+                      对白/字幕来源 <span className="text-red-400">*</span> 必选
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button type="button" onClick={() => setSubSource('audio')}
+                        className={`flex-1 text-left text-xs px-3 py-2 rounded-lg border transition ${
+                          subSource === 'audio'
+                            ? 'border-mint-600 bg-mint-50 text-mint-700 font-medium'
+                            : 'border-stone-200 text-stone-600 hover:border-mint-300'
+                        }`}>
+                        🎧 音轨对白（Whisper 听写）
+                        <span className={`block text-[11px] ${subSource === 'audio' ? 'text-mint-600' : 'text-stone-400'}`}>
+                          常规视频选这个：识别声音里的对白
+                        </span>
+                      </button>
+                      <button type="button" onClick={() => setSubSource('ocr')}
+                        className={`flex-1 text-left text-xs px-3 py-2 rounded-lg border transition ${
+                          subSource === 'ocr'
+                            ? 'border-mint-600 bg-mint-50 text-mint-700 font-medium'
+                            : 'border-stone-200 text-stone-600 hover:border-mint-300'
+                        }`}>
+                        🖼️ 画面字幕 OCR 提取（较慢）
+                        <span className={`block text-[11px] ${subSource === 'ocr' ? 'text-mint-600' : 'text-stone-400'}`}>
+                          字幕烧录在画面里时选这个，中英文均可，自动跳过翻译
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {subInfo && (
+                  <label className="flex items-start gap-2 text-xs text-stone-600 ml-2 cursor-pointer">
+                    <input type="checkbox" checked={subAlreadyZh} onChange={e => setSubAlreadyZh(e.target.checked)}
+                      className="accent-mint-600 mt-0.5" />
+                    <span>
+                      字幕已是中文，跳过识别与翻译
+                      <span className="block text-[11px] text-stone-400">
+                        适合英文视频 + 现成中文字幕：直接按字幕配音，最快且零翻译额度
+                      </span>
+                    </span>
+                  </label>
+                )}
+                {subInfo && (
+                  <button onClick={() => { setSubInfo(null); setSubAlreadyZh(false) }} className="text-xs text-stone-400 hover:text-red-500 ml-2">
+                    移除字幕
+                  </button>
+                )}
+              </div>
             </Card>
           )}
 
@@ -751,7 +754,8 @@ const Dub: React.FC = () => {
               )}
               <button
                 onClick={() => startJob()}
-                disabled={busy || !upload}
+                disabled={busy || !upload || (!subInfo && !useEmbedded && !subSource)}
+                title={!subInfo && !useEmbedded && !subSource ? '请先选择对白/字幕来源' : undefined}
                 className="mt-4 w-full py-3 rounded-2xl bg-mint-600 text-white font-medium shadow-soft
                   hover:bg-mint-700 active:scale-[0.99] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -905,92 +909,39 @@ const Dub: React.FC = () => {
             ))}
           </div>
 
-          {/* 发布到作品库（暂时隐藏，恢复时把 SHOW_PUBLISH 改回 true） */}
-          {SHOW_PUBLISH && videoOutputs.length > 0 && (
+          {/* 发布到视频库：所有人可见，可随时取消 */}
+          {SHOW_PUBLISH && videoOutputs.length > 0 && job && (
             <div className="mt-3 p-3 rounded-xl border border-violet-100 bg-violet-50/50">
-              {published ? (
+              {job.published ? (
                 <div>
-                  <p className="text-sm text-violet-800 font-medium">🎉 已发布到作品库</p>
+                  <p className="text-sm text-violet-800 font-medium">🎉 已发布到视频库</p>
                   <p className="mt-1 text-xs text-violet-700/70 leading-relaxed">
-                    视频已上传 GitHub。网站清单提交后会触发自动部署，约 1 分钟后他人即可访问；
-                    重复发布会更新这一条。
+                    所有人都能在网站「视频库」在线观看这个视频。
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {published.pages_url && (
-                      <a href={published.pages_url} target="_blank" rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs hover:bg-violet-700">
-                        打开作品库 ↗
-                      </a>
-                    )}
-                    <button onClick={() => { setPublished(null); setPubOpen(true) }}
-                      className="px-3 py-1.5 rounded-lg border border-violet-200 text-violet-700 text-xs bg-white/70 hover:bg-white">
-                      更新发布信息
+                    <a href="#/works" target="_blank" rel="noreferrer"
+                      className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs hover:bg-violet-700">
+                      打开视频库 ↗
+                    </a>
+                    <button onClick={togglePublish} disabled={publishing}
+                      className="px-3 py-1.5 rounded-lg border border-violet-200 text-violet-700 text-xs bg-white/70 hover:bg-white disabled:opacity-50">
+                      {publishing ? '处理中…' : '取消发布'}
                     </button>
                   </div>
-                  {published.repo_private && (
-                    <p className="mt-2 text-[11px] text-amber-600 leading-relaxed">
-                      ⚠️ 当前 GitHub 仓库是私有的，别人无法播放，请在 GitHub 仓库 Settings 最底部把仓库改为 Public。
-                    </p>
-                  )}
                 </div>
-              ) : !pubOpen ? (
-                <button onClick={onPublish} disabled={publishing}
-                  className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-sm hover:bg-violet-700 disabled:opacity-60">
-                  🌐 发布到作品库（他人可在线播放 / 下载）
-                </button>
               ) : (
-                <div className="space-y-2">
-                  {pubCfg && !pubCfg.configured ? (
-                    <div className="text-xs text-stone-600 leading-relaxed">
-                      <p className="text-violet-800 font-medium mb-1">首次使用，先配置 GitHub 发布：</p>
-                      <ol className="list-decimal pl-4 space-y-1">
-                        <li>
-                          到 GitHub → Settings → Developer settings → Personal access tokens →
-                          Tokens (classic) 生成一个 Token，勾选 <b>repo</b> 权限；
-                        </li>
-                        <li>
-                          打开本机 <code className="px-1 bg-white rounded">video-service/service.json</code>
-                          （可从 service.example.json 复制），填入：
-                        </li>
-                      </ol>
-                      <pre className="mt-1.5 p-2 rounded-lg bg-white border border-stone-200 text-[11px] overflow-x-auto">{`"github_token": "ghp_你的token",
-"github_repo": "lxt-promise/mustardseed"`}</pre>
-                      <p className="mt-1">3. 重启本地视频服务后即可发布。Token 只存在本机，不会提交到仓库。</p>
-                      <button onClick={() => setPubOpen(false)}
-                        className="mt-2 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 bg-white hover:bg-stone-50">
-                        知道了
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <input value={pubTitle} onChange={e => setPubTitle(e.target.value)}
-                        maxLength={80} placeholder="作品标题"
-                        className="w-full text-sm rounded-lg border border-stone-200 px-3 py-2 bg-white focus:border-violet-400 outline-none" />
-                      <textarea value={pubNote} onChange={e => setPubNote(e.target.value)}
-                        maxLength={200} rows={2} placeholder="一句话介绍（可选）"
-                        className="w-full text-sm rounded-lg border border-stone-200 px-3 py-2 bg-white resize-y focus:border-violet-400 outline-none" />
-                      {publishing && (
-                        <p className="text-xs text-violet-700/80">
-                          正在上传到 GitHub，请耐心等待，不要关闭页面…（视频越大越久）
-                        </p>
-                      )}
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => { setPubOpen(false); setPubError('') }}
-                          disabled={publishing}
-                          className="py-2 rounded-lg border border-stone-200 text-sm text-stone-600 disabled:opacity-50">
-                          取消
-                        </button>
-                        <button onClick={onPublish} disabled={publishing || !pubTitle.trim()}
-                          className="py-2 rounded-lg bg-violet-600 text-white text-sm disabled:opacity-50">
-                          {publishing ? '上传中…' : '确认发布'}
-                        </button>
-                      </div>
-                    </>
-                  )}
+                <div>
+                  <button onClick={togglePublish} disabled={publishing}
+                    className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-sm hover:bg-violet-700 disabled:opacity-60">
+                    {publishing ? '处理中…' : '📢 发布到视频库（所有人可见）'}
+                  </button>
+                  <p className="mt-1.5 text-[11px] text-violet-700/60 leading-relaxed">
+                    发布后其他人可在网站「视频库」在线播放；随时可取消发布，不影响自己的任务记录。
+                  </p>
                 </div>
               )}
               {pubError && (
-                <p className="mt-2 text-xs text-red-500 leading-relaxed">发布失败：{pubError}</p>
+                <p className="mt-2 text-xs text-red-500 leading-relaxed">操作失败：{pubError}</p>
               )}
             </div>
           )}

@@ -140,6 +140,9 @@ export interface JobInfo {
   stage_timings?: Record<string, number>
   /** 总耗时（秒） */
   total_seconds?: number
+  /** 是否已发布到本地视频库（所有人可见） */
+  published?: boolean
+  published_at?: number
   options: Record<string, unknown>
   segments?: Segment[]
 }
@@ -397,4 +400,37 @@ export async function publishWork(
 
 export async function unpublishWork(workId: string): Promise<void> {
   await request(`/api/publish/works/${encodeURIComponent(workId)}`, { method: 'DELETE' })
+}
+
+// --------------------------------------------------------------- 本地视频库（发布后所有人可见）
+export interface WorkItem {
+  id: string
+  filename: string
+  duration?: number
+  size?: number
+  created_at: number
+  published_at: number
+  video: string
+  thumb: string
+}
+
+/** 发布/取消发布到本地视频库（仅任务所有者可操作） */
+export async function setWorkPublished(jobId: string, published: boolean): Promise<void> {
+  await request(`/api/jobs/${encodeURIComponent(jobId)}/${published ? 'publish' : 'unpublish'}`, {
+    method: 'POST',
+  })
+}
+
+/** 公开视频库列表：无需用户身份，所有人可见 */
+export async function listWorks(): Promise<WorkItem[]> {
+  const r = await request<{ works: WorkItem[] }>('/api/works', undefined, 15000)
+  return r.works
+}
+
+export function workVideoUrl(id: string): string {
+  return `${DUB_BASE_URL}/api/works/${encodeURIComponent(id)}/video`
+}
+
+export function workThumbUrl(id: string): string {
+  return `${DUB_BASE_URL}/api/works/${encodeURIComponent(id)}/thumb`
 }

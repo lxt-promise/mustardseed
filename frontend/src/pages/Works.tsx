@@ -1,11 +1,13 @@
 /**
- * 作品库：展示已发布到 GitHub Releases 的配音成片。
+ * 视频库：展示所有用户发布到本地 video-service 的配音成片。
  *
- * 数据源是随 GitHub Pages 一起发布的 works.json（public/works/works.json），
- * 视频直链是 github.com/.../releases/download/...，支持浏览器原生流式播放与下载，
- * 访客无需启动任何本地服务。
+ * 数据来自 video-service 公开接口 /api/works（无需用户身份），
+ * 播放/缩略图走 /api/works/{id}/video、/api/works/{id}/thumb。
+ * 注意：GitHub Pages（https）直连 http 服务会被浏览器拦截，
+ * 在服务器自托管页面（同源）或 HTTPS 反代下播放无碍。
  */
 import React, { useEffect, useMemo, useState } from 'react'
+import { listWorks, workThumbUrl, workVideoUrl } from '@/api/dub'
 
 export interface Work {
   id: string
@@ -42,13 +44,16 @@ function fmtDate(ts?: number): string {
 }
 
 async function loadWorks(): Promise<Work[]> {
-  const res = await fetch(`${import.meta.env.BASE_URL}works/works.json?t=${Date.now()}`, {
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const data = await res.json()
-  const works = Array.isArray(data?.works) ? (data.works as Work[]) : []
-  return works.filter(w => w && w.video)
+  const items = await listWorks()
+  return items.map(w => ({
+    id: w.id,
+    title: w.filename.replace(/\.[^.]+$/, ''),
+    video: workVideoUrl(w.id),
+    poster: workThumbUrl(w.id),
+    duration: w.duration,
+    size: w.size,
+    published_at: w.published_at,
+  }))
 }
 
 const Works: React.FC = () => {
@@ -97,9 +102,9 @@ const Works: React.FC = () => {
       {/* 标题区 */}
       <section className="mb-6">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-mint-100 text-mint-700 text-xs font-semibold">
-          🎬 作品库
+          🎬 视频库
         </div>
-        <h1 className="mt-2 text-2xl font-bold text-mint-900">中文配音作品集</h1>
+        <h1 className="mt-2 text-2xl font-bold text-mint-900">视频库 · 中文配音作品</h1>
         <p className="mt-1 text-sm text-mint-700/70">
           在线直接播放，也可以下载到本地慢慢看。
         </p>
@@ -119,7 +124,7 @@ const Works: React.FC = () => {
           <div className="text-5xl mb-3">🌱</div>
           <p className="text-sm text-mint-700/70">还没有发布作品</p>
           <p className="mt-1 text-xs text-mint-700/50">
-            在「视频译制」里完成配音后，点「发布到作品库」即可
+            在「视频译制」里完成配音后，点「发布到视频库」即可
           </p>
         </div>
       )}

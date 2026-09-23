@@ -68,11 +68,10 @@ const officeTools: Tool[] = [
       </svg>
     ),
   },
-  /* —— 作品库 / 会议记录暂时隐藏（2026-09-20），恢复时取消注释即可 ——
   {
     to: '/works',
-    name: '作品库',
-    desc: '在线观看译制好的中文配音作品，可播放可下载',
+    name: '视频库',
+    desc: '在线观看大家发布的中文配音作品，可播放可下载',
     color: 'from-violet-400 to-fuchsia-500',
     badge: '🎬 新上',
     icon: (
@@ -83,6 +82,7 @@ const officeTools: Tool[] = [
       </svg>
     ),
   },
+  /* —— 会议记录暂时隐藏（2026-09-20），恢复时取消注释即可 ——
   {
     to: '/meeting',
     name: '会议记录',

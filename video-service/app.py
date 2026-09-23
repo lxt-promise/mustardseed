@@ -442,11 +442,17 @@ async def upload_subtitle(file: UploadFile = File(...)) -> dict:
 def _user_id(request: Request) -> str:
     """调用者身份：优先 X-User-Id 请求头（fetch/XHR 可带），
     媒体标签（<video>/<img>）无法带自定义头，回退 ?uid= 查询参数。
-    都缺失时归入 'default'（本地单用户/命令行场景）。
-    身份是浏览器自生成的随机 uid（localStorage 持久化），非登录体系。"""
+    身份是浏览器自生成的随机 uid（localStorage 持久化），非登录体系。
+    缺失时直接 401：绝不能兜底到共享池——浏览器缓存的旧版前端 JS
+    没有带 uid 的逻辑，若归入 default，所有旧客户端会互相看到任务。"""
     raw = request.headers.get("X-User-Id") or request.query_params.get("uid") or ""
     uid = re.sub(r"[^A-Za-z0-9_-]", "", raw)[:64]
-    return uid or "default"
+    if not uid:
+        raise HTTPException(
+            401,
+            "缺少用户身份（X-User-Id 头或 uid 参数）。请强制刷新页面（Ctrl+F5）加载新版前端后重试",
+        )
+    return uid
 
 
 def _owned_job(request: Request, jid: str) -> "jobs_mod.Job":
@@ -714,6 +720,81 @@ async def preview_audio(jid: str, request: Request = None):
     if not path.exists():
         raise HTTPException(404, "配音音轨尚未生成")
     return FileResponse(path, media_type="audio/wav")
+
+
+# ================================================================ 本地视频库（发布后所有人可见）
+@app.post("/api/jobs/{jid}/publish")
+async def publish_to_library(jid: str, request: Request) -> dict:
+    """任务所有者把处理完成的成片发布到视频库。"""
+    job = _owned_job(request, jid)
+    if job.status != "done":
+        raise HTTPException(400, "只有处理完成的任务才能发布")
+    if not any(o["kind"] == "video" for o in job.outputs):
+        raise HTTPException(400, "任务没有视频产物")
+    MANAGER.set_published(jid, True)
+    return {"ok": True, "published": True}
+
+
+@app.post("/api/jobs/{jid}/unpublish")
+async def unpublish_from_library(jid: str, request: Request) -> dict:
+    """取消发布（仅所有者可操作）。"""
+    _owned_job(request, jid)
+    MANAGER.set_published(jid, False)
+    return {"ok": True, "published": False}
+
+
+@app.get("/api/works")
+async def list_works() -> dict:
+    """公开视频库列表：所有已发布成片，无需用户身份。"""
+    works = []
+    for j in MANAGER.list():
+        if not j.published or j.status != "done":
+            continue
+        videos = [o for o in j.outputs if o["kind"] == "video"]
+        if not videos:
+            continue
+        works.append({
+            "id": j.id,
+            "filename": j.filename,
+            "duration": j.media.get("duration"),
+            "size": videos[0].get("size"),
+            "created_at": j.created_at,
+            "published_at": j.published_at,
+            "video": f"/api/works/{j.id}/video",
+            "thumb": f"/api/works/{j.id}/thumb",
+        })
+    return {"works": works}
+
+
+@app.get("/api/works/{jid}/video")
+async def work_video(jid: str, which: int = 0):
+    """公开播放已发布成片（<video> 标签直接可用）。"""
+    job = MANAGER.get(jid)
+    if not job or not job.published or job.status != "done":
+        raise HTTPException(404, "作品不存在或未发布")
+    videos = [o for o in job.outputs if o["kind"] == "video"]
+    if not videos:
+        raise HTTPException(404, "作品文件缺失")
+    which = max(0, min(which, len(videos) - 1))
+    path = Path(videos[which]["path"])
+    if not path.exists():
+        raise HTTPException(404, "文件已被清理")
+    return FileResponse(path, media_type="video/mp4")
+
+
+@app.get("/api/works/{jid}/thumb")
+async def work_thumb(jid: str, at: float = 1.0):
+    """公开的作品缩略图。"""
+    job = MANAGER.get(jid)
+    if not job or not job.published or job.status != "done":
+        raise HTTPException(404, "作品不存在或未发布")
+    cache = config.TMP_DIR / f"thumb_{job.id}_{at:.0f}.jpg"
+    if not cache.exists():
+        try:
+            mu.make_thumbnail(job.source, cache, at=at)
+        except Exception:
+            raise HTTPException(404, "无法生成缩略图") from None
+    return FileResponse(cache, media_type="image/jpeg")
 
 
 # ================================================================ 作品库发布
