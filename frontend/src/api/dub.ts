@@ -412,6 +412,7 @@ export interface WorkItem {
   published_at: number
   video: string
   thumb: string
+  owner?: string
 }
 
 /** 发布/取消发布到本地视频库（仅任务所有者可操作） */
@@ -421,10 +422,32 @@ export async function setWorkPublished(jobId: string, published: boolean): Promi
   })
 }
 
-/** 公开视频库列表：无需用户身份，所有人可见 */
+/** 公开视频库列表：带 X-User-Id 头，响应含 owner 字段供前端判断删除权限 */
 export async function listWorks(): Promise<WorkItem[]> {
   const r = await request<{ works: WorkItem[] }>('/api/works', undefined, 15000)
   return r.works
+}
+
+/** 仅发布者可删除已发布视频（取消发布+删除产物） */
+export async function deleteWork(id: string): Promise<void> {
+  await request(`/api/works/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/** 批量发布当前用户所有已完成且有视频产物的任务到视频库 */
+export async function publishAllWorks(): Promise<number> {
+  const r = await request<{ published: number }>('/api/works/publish-all', { method: 'POST' })
+  return r.published
+}
+
+/** 临时功能：列出 outputs 目录下的外部视频 */
+export async function listExternalWorks(): Promise<WorkItem[]> {
+  const r = await request<{ works: WorkItem[] }>('/api/works/external', undefined, 15000)
+  return r.works
+}
+
+/** 临时功能：删除 outputs 目录下的外部视频（所有人可删） */
+export async function deleteExternalWork(name: string): Promise<void> {
+  await request(`/api/works/external/${encodeURIComponent(name)}`, { method: 'DELETE' })
 }
 
 export function workVideoUrl(id: string): string {

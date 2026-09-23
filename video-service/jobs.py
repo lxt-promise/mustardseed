@@ -198,6 +198,7 @@ class JobManager:
         job = Job(id=jid, filename=filename, source=source, options=options, user=user)
         with self._lock:
             self._jobs[jid] = job
+        self._save()
         return job
 
     def get(self, jid: str) -> Job | None:

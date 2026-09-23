@@ -1,25 +1,90 @@
-import React from 'react'
+import React, { Suspense, lazy } from 'react'
 import ReactDOM from 'react-dom/client'
-import { HashRouter } from 'react-router-dom'
-import App from './App'
+import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
 import { initAnalytics } from './utils/analytics'
 import { initDubConfig } from './api/dub'
 import { initMeetingConfig } from './api/meeting'
-import { prewarmReadingIndex } from './data/reading'
 import './index.css'
+
+// 首页同步加载（首屏即用），其余页面懒加载减小初始 bundle
+import Home from './pages/Home'
+import PageHeader from './components/PageHeader'
+import SiteFooter from './components/SiteFooter'
+import ScrollToTop from './components/ScrollToTop'
+import { trackPageview } from './utils/analytics'
+
+const Pomodoro = lazy(() => import('./pages/Pomodoro'))
+const Todo = lazy(() => import('./pages/Todo'))
+const Picker = lazy(() => import('./pages/Picker'))
+const Verse = lazy(() => import('./pages/Verse'))
+const Music = lazy(() => import('./pages/Music'))
+const Workdays = lazy(() => import('./pages/Workdays'))
+const Quiz = lazy(() => import('./pages/Quiz'))
+const More = lazy(() => import('./pages/More'))
+const Reading = lazy(() => import('./pages/Reading'))
+const ReadingDetail = lazy(() => import('./pages/ReadingDetail'))
+const Dub = lazy(() => import('./pages/Dub'))
+const Meeting = lazy(() => import('./pages/Meeting'))
+const Works = lazy(() => import('./pages/Works'))
 
 initAnalytics()
 
-// 先加载运行时配置（如视频译制服务地址），再挂载应用；
-// 配置文件缺失/超时时 initXxx 内部会静默回退默认值，不阻塞渲染。
-Promise.all([initDubConfig(), initMeetingConfig()]).finally(() => {
-  ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-      <HashRouter>
-        <App />
-      </HashRouter>
-    </React.StrictMode>,
+// 异步预热研经日课索引（不阻塞首屏）
+function prewarmReading() {
+  import('./data/reading').then(({ prewarmReadingIndex }) => prewarmReadingIndex())
+}
+
+function App() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const isHome = location.pathname === '/' || location.pathname === ''
+  const firstRender = useRef(true)
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return }
+    trackPageview(location.pathname)
+  }, [location.pathname])
+
+  return (
+    <div className="min-h-screen w-full flex flex-col">
+      <ScrollToTop />
+      <div className="w-full max-w-[720px] mx-auto flex-1 flex flex-col px-4 sm:px-6">
+        {!isHome ? <PageHeader onBack={() => navigate(-1)} /> : null}
+        <main className={`flex-1 w-full ${isHome ? 'pt-6 sm:pt-10 pb-12' : 'pb-16'}`}>
+          <Suspense fallback={<div className="py-20 text-center text-sm text-mint-700/60">加载中…</div>}>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/pomodoro" element={<Pomodoro />} />
+              <Route path="/todo" element={<Todo />} />
+              <Route path="/picker" element={<Picker />} />
+              <Route path="/verse" element={<Verse />} />
+              <Route path="/music" element={<Music />} />
+              <Route path="/workdays" element={<Workdays />} />
+              <Route path="/quiz" element={<Quiz />} />
+              <Route path="/more" element={<More />} />
+              <Route path="/reading" element={<Reading />} />
+              <Route path="/reading/:id" element={<ReadingDetail />} />
+              <Route path="/dub" element={<Dub />} />
+              <Route path="/meeting" element={<Meeting />} />
+              <Route path="/works" element={<Works />} />
+            </Routes>
+          </Suspense>
+        </main>
+        <SiteFooter />
+      </div>
+    </div>
   )
-  // 首屏渲染后空闲预热研经日课目录索引（约 160KB），进入模块即秒开
-  prewarmReadingIndex()
-})
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <HashRouter>
+      <App />
+    </HashRouter>
+  </React.StrictMode>,
+)
+
+// 挂载后再异步加载配置和预热索引
+initDubConfig()
+initMeetingConfig()
+prewarmReading()

@@ -744,8 +744,10 @@ async def unpublish_from_library(jid: str, request: Request) -> dict:
 
 
 @app.get("/api/works")
-async def list_works() -> dict:
-    """公开视频库列表：所有已发布成片，无需用户身份。"""
+async def list_works(request: Request) -> dict:
+    """公开视频库列表：所有已发布成片。
+    若请求带了 X-User-Id，额外返回 owner 字段供前端判断是否可删除。"""
+    uid = request.headers.get("X-User-Id") or request.query_params.get("uid") or ""
     works = []
     for j in MANAGER.list():
         if not j.published or j.status != "done":
@@ -753,7 +755,7 @@ async def list_works() -> dict:
         videos = [o for o in j.outputs if o["kind"] == "video"]
         if not videos:
             continue
-        works.append({
+        item = {
             "id": j.id,
             "filename": j.filename,
             "duration": j.media.get("duration"),
@@ -762,7 +764,10 @@ async def list_works() -> dict:
             "published_at": j.published_at,
             "video": f"/api/works/{j.id}/video",
             "thumb": f"/api/works/{j.id}/thumb",
-        })
+        }
+        if uid:
+            item["owner"] = j.user
+        works.append(item)
     return {"works": works}
 
 
@@ -795,6 +800,81 @@ async def work_thumb(jid: str, at: float = 1.0):
         except Exception:
             raise HTTPException(404, "无法生成缩略图") from None
     return FileResponse(cache, media_type="image/jpeg")
+
+
+@app.delete("/api/works/{jid}")
+async def delete_work(jid: str, request: Request) -> dict:
+    """仅发布者可删除已发布视频：取消发布并删除产物文件。"""
+    job = _owned_job(request, jid)
+    if not job.published:
+        raise HTTPException(400, "该作品未发布")
+    # 取消发布
+    MANAGER.set_published(jid, False)
+    # 删除任务及产物（仅非运行中）
+    if job.status == "running":
+        raise HTTPException(400, "任务正在运行，无法删除")
+    MANAGER.remove(jid)
+    return {"ok": True}
+
+
+@app.post("/api/works/publish-all")
+async def publish_all_done(request: Request) -> dict:
+    """批量发布所有已完成且有视频产物的任务到视频库。"""
+    uid = _user_id(request)
+    count = 0
+    for j in MANAGER.list():
+        if j.user != uid or j.status != "done" or j.published:
+            continue
+        videos = [o for o in j.outputs if o["kind"] == "video"]
+        if not videos:
+            continue
+        MANAGER.set_published(j.id, True)
+        count += 1
+    return {"ok": True, "published": count}
+
+
+# ================================================================ outputs 外部视频（临时功能，可废弃）
+@app.get("/api/works/external")
+async def list_external_works() -> dict:
+    """扫描 outputs 目录下的 mp4 文件，作为外部视频返回到视频库。"""
+    works = []
+    if OUTPUT_DIR.is_dir():
+        for f in sorted(OUTPUT_DIR.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True):
+            stat = f.stat()
+            works.append({
+                "id": f"ext:{f.name}",
+                "filename": f.name,
+                "size": stat.st_size,
+                "created_at": stat.st_mtime,
+                "video": f"/api/works/external/{f.name}",
+                "thumb": "",
+            })
+    return {"works": works}
+
+
+@app.get("/api/works/external/{name}")
+async def serve_external_video(name: str):
+    """公开播放 outputs 目录下的视频文件。"""
+    # 防路径穿越
+    safe = Path(name).name
+    path = OUTPUT_DIR / safe
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "文件不存在")
+    return FileResponse(str(path), media_type="video/mp4")
+
+
+@app.delete("/api/works/external/{name}")
+async def delete_external_video(name: str):
+    """删除 outputs 目录下的视频文件（所有人可删，临时功能）。"""
+    safe = Path(name).name
+    path = OUTPUT_DIR / safe
+    if not path.exists():
+        raise HTTPException(404, "文件不存在")
+    try:
+        path.unlink()
+    except Exception as exc:
+        raise HTTPException(500, f"删除失败：{exc}") from exc
+    return {"ok": True}
 
 
 # ================================================================ 作品库发布

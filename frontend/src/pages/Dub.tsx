@@ -5,7 +5,7 @@ import {
   uploadVideo, uploadSubtitle,
   createJob, getJob, listJobs, cancelJob, deleteJob, saveSegments, redoJob, previewVoice,
   previewVideoUrl, downloadUrl,
-  setWorkPublished,
+  setWorkPublished, publishAllWorks,
   type HealthInfo, type OptionsInfo, type UploadResult,
   type JobInfo, type Segment, type JobOptions, type Voice, type WhisperModel,
 } from '@/api/dub'
@@ -343,7 +343,13 @@ const Dub: React.FC = () => {
       const j = await getJob(r.id)
       setJob(j); setPhase('running')
     } catch (e) {
-      setError(e instanceof Error ? e.message : '重跑失败')
+      const msg = e instanceof Error ? e.message : '重跑失败'
+      if (msg.includes('任务不存在')) {
+        setError('原任务已不存在（可能服务已重启），请重新上传视频')
+        setJob(null); setPhase('setup'); refreshHistory()
+      } else {
+        setError(msg); setPhase('setup')
+      }
     } finally { setBusy(false) }
   }
 
@@ -815,7 +821,11 @@ const Dub: React.FC = () => {
         <Card title="❌ 处理失败">
           <p className="text-sm text-red-600 whitespace-pre-wrap">{job.error || '未知错误'}</p>
           <div className="flex gap-2 mt-3">
-            <button onClick={() => startJob()} className="px-4 py-2 rounded-xl bg-mint-600 text-white text-sm">重试</button>
+            {upload ? (
+              <button onClick={() => startJob()} className="px-4 py-2 rounded-xl bg-mint-600 text-white text-sm">重试</button>
+            ) : (
+              <button onClick={onRedo} disabled={busy} className="px-4 py-2 rounded-xl bg-mint-600 text-white text-sm disabled:opacity-50">换音色重跑</button>
+            )}
             <button onClick={resetAll} className="px-4 py-2 rounded-xl border border-stone-200 text-sm text-stone-600">重新开始</button>
           </div>
         </Card>
@@ -824,6 +834,17 @@ const Dub: React.FC = () => {
       {/* ---------------- 历史任务清单 ---------------- */}
       {phase === 'setup' && history.length > 0 && (
         <Card title={`📋 历史任务（${history.length}）`}>
+          {history.some(h => h.status === 'done') && (
+            <button
+              onClick={async () => {
+                try { const n = await publishAllWorks(); if (n > 0) { window.alert(`已发布 ${n} 个作品到视频库`) } else { window.alert('没有可发布的已完成视频') } } catch (e) { window.alert(e instanceof Error ? e.message : '发布失败') }
+                refreshHistory()
+              }}
+              className="mb-3 px-4 py-2 rounded-xl bg-violet-500 text-white text-sm hover:bg-violet-600"
+            >
+              📢 全部发布到视频库
+            </button>
+          )}
           <div className="space-y-2 max-h-96 overflow-auto pr-1">
             {history.map(h => (
               <div key={h.id}

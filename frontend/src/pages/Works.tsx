@@ -6,8 +6,8 @@
  * 注意：GitHub Pages（https）直连 http 服务会被浏览器拦截，
  * 在服务器自托管页面（同源）或 HTTPS 反代下播放无碍。
  */
-import React, { useEffect, useMemo, useState } from 'react'
-import { listWorks, workThumbUrl, workVideoUrl } from '@/api/dub'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { DUB_BASE_URL, deleteExternalWork, deleteWork, dubUserId, listExternalWorks, listWorks, workThumbUrl, workVideoUrl } from '@/api/dub'
 
 export interface Work {
   id: string
@@ -18,6 +18,9 @@ export interface Work {
   duration?: number
   size?: number
   published_at?: number
+  owner?: string
+  external?: boolean
+  extName?: string
 }
 
 function fmtDuration(sec?: number): string {
@@ -44,8 +47,8 @@ function fmtDate(ts?: number): string {
 }
 
 async function loadWorks(): Promise<Work[]> {
-  const items = await listWorks()
-  return items.map(w => ({
+  const [items, ext] = await Promise.all([listWorks(), listExternalWorks().catch(() => [])])
+  const regular = items.map(w => ({
     id: w.id,
     title: w.filename.replace(/\.[^.]+$/, ''),
     video: workVideoUrl(w.id),
@@ -53,24 +56,53 @@ async function loadWorks(): Promise<Work[]> {
     duration: w.duration,
     size: w.size,
     published_at: w.published_at,
+    owner: w.owner,
   }))
+  const external = ext.map(w => ({
+    id: w.id,
+    title: w.filename.replace(/\.[^.]+$/, ''),
+    video: `${DUB_BASE_URL}${w.video}`,
+    poster: '',
+    size: w.size,
+    published_at: w.published_at || w.created_at,
+    external: true,
+    extName: w.filename,
+  }))
+  return [...regular, ...external]
 }
 
+const WORKS_PASSWORD = '392766'
+const WORKS_UNLOCK_KEY = 'works_unlocked'
+
 const Works: React.FC = () => {
+  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem(WORKS_UNLOCK_KEY) === '1')
+  const [pwInput, setPwInput] = useState('')
+  const [pwError, setPwError] = useState(false)
   const [works, setWorks] = useState<Work[] | null>(null)
   const [error, setError] = useState('')
   const [active, setActive] = useState<Work | null>(null)
   const [copied, setCopied] = useState(false)
+  const uid = useMemo(() => dubUserId(), [])
 
-  useEffect(() => {
+  const submitPw = () => {
+    if (pwInput.trim() === WORKS_PASSWORD) {
+      sessionStorage.setItem(WORKS_UNLOCK_KEY, '1')
+      setUnlocked(true); setPwError(false)
+    } else {
+      setPwError(true)
+    }
+  }
+
+  const refresh = useCallback(() => {
     let alive = true
+    setWorks(null); setError('')
     loadWorks()
       .then(list => alive && setWorks(list))
       .catch(err => alive && setError(err?.message || '加载失败'))
-    return () => {
-      alive = false
-    }
+    return () => { alive = false }
   }, [])
+
+  useEffect(() => refresh(), [refresh])
 
   // 弹窗打开时锁滚动；Esc 关闭
   useEffect(() => {
@@ -95,6 +127,53 @@ const Works: React.FC = () => {
     } catch {
       // 非 https / 旧浏览器无剪贴板权限，忽略
     }
+  }
+
+  const onDelete = async () => {
+    if (!active) return
+    // 外部视频所有人可删；正常视频仅发布者可删
+    const canDelete = active.external || (active.owner === uid)
+    if (!canDelete) { window.alert('只有发布者可以删除'); return }
+    if (!window.confirm(`确定删除「${active.title}」吗？\n文件将被删除，不可恢复。`)) return
+    try {
+      if (active.external && active.extName) {
+        await deleteExternalWork(active.extName)
+      } else {
+        await deleteWork(active.id)
+      }
+      setActive(null)
+      refresh()
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : '删除失败')
+    }
+  }
+
+  if (!unlocked) {
+    return (
+      <div className="animate-fade-up flex items-center justify-center min-h-[60vh]">
+        <div className="w-full max-w-xs bg-white rounded-2xl shadow-card border border-mint-100/70 p-6 text-center">
+          <div className="text-4xl mb-3">🔒</div>
+          <h2 className="text-lg font-bold text-mint-900 mb-1">视频库</h2>
+          <p className="text-xs text-mint-700/60 mb-4">请输入密码以查看视频库</p>
+          <input
+            type="password"
+            value={pwInput}
+            onChange={e => { setPwInput(e.target.value); setPwError(false) }}
+            onKeyDown={e => e.key === 'Enter' && submitPw()}
+            placeholder="输入密码"
+            className="w-full px-4 py-2.5 rounded-xl border border-stone-200 text-center text-sm focus:outline-none focus:border-mint-400"
+            autoFocus
+          />
+          {pwError && <p className="mt-2 text-xs text-red-500">密码错误，请重试</p>}
+          <button
+            onClick={submitPw}
+            className="mt-3 w-full py-2.5 rounded-xl bg-mint-600 text-white text-sm hover:bg-mint-700"
+          >
+            进入视频库
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -234,6 +313,14 @@ const Works: React.FC = () => {
                 >
                   {copied ? '✓ 已复制' : '🔗 复制直链'}
                 </button>
+                {(active.external || active.owner === uid) && (
+                  <button
+                    onClick={onDelete}
+                    className="px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm hover:bg-red-50"
+                  >
+                    🗑 删除
+                  </button>
+                )}
               </div>
             </div>
           </div>
