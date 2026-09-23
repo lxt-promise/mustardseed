@@ -177,6 +177,7 @@ const Works: React.FC = () => {
   }
 
   return (
+    <>
     <div className="animate-fade-up">
       {/* 标题区 */}
       <section className="mb-6">
@@ -258,14 +259,16 @@ const Works: React.FC = () => {
         </div>
       )}
 
-      {/* 播放弹窗 */}
+    </div>
+
+      {/* 播放弹窗 —— 必须在 animate-fade-up 容器外，否则 transform 破坏 fixed 定位 */}
       {active && (
         <div
           className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3 sm:p-6"
           onClick={() => setActive(null)}
         >
           <div
-            className="w-full max-w-3xl rounded-2xl bg-white overflow-hidden shadow-2xl"
+            className="w-full max-w-3xl max-h-[90vh] rounded-2xl bg-white overflow-hidden shadow-2xl flex flex-col"
             onClick={e => e.stopPropagation()}
           >
             <video
@@ -275,9 +278,9 @@ const Works: React.FC = () => {
               controls
               autoPlay
               playsInline
-              className="w-full max-h-[65vh] bg-black"
+              className="w-full max-h-[45vh] sm:max-h-[60vh] bg-black object-contain"
             />
-            <div className="p-4">
+            <div className="p-4 overflow-y-auto flex-1">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="font-semibold text-mint-900 truncate">{active.title}</h3>
@@ -326,7 +329,7 @@ const Works: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

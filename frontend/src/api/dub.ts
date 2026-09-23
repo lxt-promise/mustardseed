@@ -31,13 +31,21 @@ export function initDubConfig(): Promise<void> {
           const cfg = await res.json()
           const raw = (cfg?.dubApiBase ?? '').toString().trim().replace(/\/+$/, '')
           if (raw === 'origin' || raw === 'same-origin') {
-            // 前端由视频服务同源托管（video-service/web/）时：直接用当前源，
-            // 局域网 http://<服务器IP>:8765 访问无需改配置，也无混合内容问题。
-            if (typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)) {
-              DUB_BASE_URL = window.location.origin
-            }
+            DUB_BASE_URL = window.location.origin
           } else if (raw) {
-            DUB_BASE_URL = raw
+            const host = window.location.hostname
+            const port = window.location.port
+            const isGitHubPages = host.endsWith('.github.io')
+            // 前端由 video-service 托管（端口 8765）或 Apache 反代（端口 10085）时，API 与前端同源
+            const isSameOriginAPI = port === '8765' || port === '10085' || host === 'christu.bid'
+            if (isGitHubPages) {
+              DUB_BASE_URL = raw               // GitHub Pages → 配置的远程地址
+            } else if (isSameOriginAPI) {
+              DUB_BASE_URL = window.location.origin  // 同源 → 当前地址
+            } else {
+              // 前端在 9999 等其他端口（开发服务器）→ 用默认本地 API 地址
+              DUB_BASE_URL = DEFAULT_DUB_BASE_URL
+            }
           }
         }
       } catch {
