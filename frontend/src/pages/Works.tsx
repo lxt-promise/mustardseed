@@ -7,7 +7,7 @@
  * 在服务器自托管页面（同源）或 HTTPS 反代下播放无碍。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { DUB_BASE_URL, deleteExternalWork, deleteWork, dubUserId, listExternalWorks, listWorks, workThumbUrl, workVideoUrl } from '@/api/dub'
+import { deleteWork, dubUserId, listWorks, workThumbUrl, workVideoUrl } from '@/api/dub'
 
 export interface Work {
   id: string
@@ -19,8 +19,6 @@ export interface Work {
   size?: number
   published_at?: number
   owner?: string
-  external?: boolean
-  extName?: string
 }
 
 function fmtDuration(sec?: number): string {
@@ -47,8 +45,8 @@ function fmtDate(ts?: number): string {
 }
 
 async function loadWorks(): Promise<Work[]> {
-  const [items, ext] = await Promise.all([listWorks(), listExternalWorks().catch(() => [])])
-  const regular = items.map(w => ({
+  const items = await listWorks()
+  return items.map(w => ({
     id: w.id,
     title: w.filename.replace(/\.[^.]+$/, ''),
     video: workVideoUrl(w.id),
@@ -58,17 +56,6 @@ async function loadWorks(): Promise<Work[]> {
     published_at: w.published_at,
     owner: w.owner,
   }))
-  const external = ext.map(w => ({
-    id: w.id,
-    title: w.filename.replace(/\.[^.]+$/, ''),
-    video: `${DUB_BASE_URL}${w.video}`,
-    poster: '',
-    size: w.size,
-    published_at: w.published_at || w.created_at,
-    external: true,
-    extName: w.filename,
-  }))
-  return [...regular, ...external]
 }
 
 const WORKS_PASSWORD = '392766'
@@ -130,17 +117,10 @@ const Works: React.FC = () => {
   }
 
   const onDelete = async () => {
-    if (!active) return
-    // 外部视频所有人可删；正常视频仅发布者可删
-    const canDelete = active.external || (active.owner === uid)
-    if (!canDelete) { window.alert('只有发布者可以删除'); return }
-    if (!window.confirm(`确定删除「${active.title}」吗？\n文件将被删除，不可恢复。`)) return
+    if (!active || !active.owner || active.owner !== uid) return
+    if (!window.confirm(`确定删除「${active.title}」吗？\n发布和产物文件将一并清除，不可恢复。`)) return
     try {
-      if (active.external && active.extName) {
-        await deleteExternalWork(active.extName)
-      } else {
-        await deleteWork(active.id)
-      }
+      await deleteWork(active.id)
       setActive(null)
       refresh()
     } catch (e) {
@@ -316,7 +296,7 @@ const Works: React.FC = () => {
                 >
                   {copied ? '✓ 已复制' : '🔗 复制直链'}
                 </button>
-                {(active.external || active.owner === uid) && (
+                {active.owner === uid && (
                   <button
                     onClick={onDelete}
                     className="px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm hover:bg-red-50"

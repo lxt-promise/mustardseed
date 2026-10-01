@@ -447,17 +447,6 @@ export async function publishAllWorks(): Promise<number> {
   return r.published
 }
 
-/** 临时功能：列出 outputs 目录下的外部视频 */
-export async function listExternalWorks(): Promise<WorkItem[]> {
-  const r = await request<{ works: WorkItem[] }>('/api/works/external', undefined, 15000)
-  return r.works
-}
-
-/** 临时功能：删除 outputs 目录下的外部视频（所有人可删） */
-export async function deleteExternalWork(name: string): Promise<void> {
-  await request(`/api/works/external/${encodeURIComponent(name)}`, { method: 'DELETE' })
-}
-
 export function workVideoUrl(id: string): string {
   return `${DUB_BASE_URL}/api/works/${encodeURIComponent(id)}/video`
 }

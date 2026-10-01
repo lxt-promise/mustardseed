@@ -833,50 +833,6 @@ async def publish_all_done(request: Request) -> dict:
     return {"ok": True, "published": count}
 
 
-# ================================================================ outputs 外部视频（临时功能，可废弃）
-@app.get("/api/works/external")
-async def list_external_works() -> dict:
-    """扫描 outputs 目录下的 mp4 文件，作为外部视频返回到视频库。"""
-    works = []
-    if OUTPUT_DIR.is_dir():
-        for f in sorted(OUTPUT_DIR.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True):
-            stat = f.stat()
-            works.append({
-                "id": f"ext:{f.name}",
-                "filename": f.name,
-                "size": stat.st_size,
-                "created_at": stat.st_mtime,
-                "video": f"/api/works/external/{f.name}",
-                "thumb": "",
-            })
-    return {"works": works}
-
-
-@app.get("/api/works/external/{name}")
-async def serve_external_video(name: str):
-    """公开播放 outputs 目录下的视频文件。"""
-    # 防路径穿越
-    safe = Path(name).name
-    path = OUTPUT_DIR / safe
-    if not path.exists() or not path.is_file():
-        raise HTTPException(404, "文件不存在")
-    return FileResponse(str(path), media_type="video/mp4")
-
-
-@app.delete("/api/works/external/{name}")
-async def delete_external_video(name: str):
-    """删除 outputs 目录下的视频文件（所有人可删，临时功能）。"""
-    safe = Path(name).name
-    path = OUTPUT_DIR / safe
-    if not path.exists():
-        raise HTTPException(404, "文件不存在")
-    try:
-        path.unlink()
-    except Exception as exc:
-        raise HTTPException(500, f"删除失败：{exc}") from exc
-    return {"ok": True}
-
-
 # ================================================================ 作品库发布
 @app.get("/api/publish/config")
 async def publish_config() -> dict:
