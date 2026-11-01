@@ -189,6 +189,8 @@ export interface JobOptions {
   subtitles_already_zh?: boolean
   /** 硬字幕 OCR：字幕烧录在画面里，从画面提取代替语音识别 */
   ocr_hard_subtitle?: boolean
+  /** 去除画面原字幕：对烧录字幕区域做 delogo 模糊（仅 OCR 源有效） */
+  remove_original_subtitle?: boolean
   subtitle_file?: string
   output_suffix?: string
   output_dir?: string

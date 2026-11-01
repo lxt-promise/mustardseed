@@ -357,6 +357,8 @@ def build_video(
     bgm_volume: float | None = None,
     bgm_ducking: bool = True,
     duration: float | None = None,
+    delogo_band: tuple[int, int, int, int] | None = None,
+    delogo_windows: list[tuple[float, float]] | None = None,
 ) -> Path:
     """将原视频画面 + 中文配音合成为最终视频。
 
@@ -365,6 +367,9 @@ def build_video(
       keep_original_audio）；instrumental 中置消除去掉原片英文人声、
       只保留背景乐/环境声。
     - bgm_ducking=True 时配音说话自动压低背景音（智能闪避）。
+    - delogo_band=(x,y,w,h) 像素矩形：用 delogo 滤镜模糊覆盖该区域，
+      用于去除烧录在画面里的原字幕（通常在底部）。delogo_windows
+      给出生效时间区间；None/空 = 全程生效。
     """
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -380,9 +385,20 @@ def build_video(
 
     filters: list[str] = []
     vlabel = "0:v"
+    if delogo_band:
+        x, y, w, h = delogo_band
+        enable = ""
+        if delogo_windows:
+            # 区间数截断到 200，避免 Windows 命令行长度上限
+            expr = "+".join(
+                f"between(t,{a:.3f},{b:.3f})" for a, b in delogo_windows[:200]
+            )
+            enable = f":enable='{expr}'"
+        filters.append(f"[{vlabel}]delogo=x={x}:y={y}:w={w}:h={h}{enable}[vdg]")
+        vlabel = "vdg"
     if burn_subtitle and subtitle_file:
         sub_path = _escape_subtitle_path(subtitle_file)
-        filters.append(f"[0:v]subtitles='{sub_path}'[vsub]")
+        filters.append(f"[{vlabel}]subtitles='{sub_path}'[vsub]")
         vlabel = "vsub"
 
     audio_chain, amap = build_audio_filtergraph(bgm_mode, bgm_volume, bgm_ducking)

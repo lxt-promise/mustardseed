@@ -95,6 +95,8 @@ const Dub: React.FC = () => {
   const [burnSub, setBurnSub] = useState(true)
   const [softSub, setSoftSub] = useState(false)
   const [bilingual, setBilingual] = useState(false)
+  // 去除画面原字幕：仅 OCR 源有意义（后端按 OCR 区间 delogo 模糊底部字幕带）
+  const [removeOrigSub, setRemoveOrigSub] = useState(false)
   // 背景音：off 关闭 / original 保留原声 / instrumental 智能去人声留背景乐
   const [bgmMode, setBgmMode] = useState<'off' | 'original' | 'instrumental'>('off')
   const [bgmVolume, setBgmVolume] = useState(35)
@@ -206,6 +208,7 @@ const Dub: React.FC = () => {
     setSubInfo(null)
     setUseEmbedded(false)
     setSubSource(null)
+    setRemoveOrigSub(false)
     try {
       const r = await uploadVideo(file, pct => setUploadPct(pct))
       setUpload(r)
@@ -258,6 +261,7 @@ const Dub: React.FC = () => {
       subtitles_already_zh: subAlreadyZh,
       // 选了外挂字幕或内嵌字幕轨时，来源已确定，OCR 标志不生效
       ocr_hard_subtitle: subSource === 'ocr' && !subInfo && !useEmbedded,
+      remove_original_subtitle: removeOrigSub && subSource === 'ocr' && !subInfo && !useEmbedded,
       ...(engine === 'cloud' ? {
         cloud_base_url: cloudBase,
         cloud_api_key: cloudKey,
@@ -273,7 +277,7 @@ const Dub: React.FC = () => {
       ...extra,
     }
   }, [engine, whisperModel, sourceLang, voice, rate, volume, autoFit,
-      burnSub, softSub, bilingual, bgmMode, bgmVolume, bgmDucking, useEmbedded, subInfo,
+      burnSub, softSub, bilingual, removeOrigSub, bgmMode, bgmVolume, bgmDucking, useEmbedded, subInfo,
       subAlreadyZh, subSource, cloudBase, cloudKey, cloudModel])
 
   const startJob = useCallback(async (edited?: Segment[]) => {
@@ -409,7 +413,7 @@ const Dub: React.FC = () => {
   }
 
   const resetAll = () => {
-    setJob(null); setUpload(null); setSubInfo(null); setEditingSegs([]); setSubSource(null)
+    setJob(null); setUpload(null); setSubInfo(null); setEditingSegs([]); setSubSource(null); setRemoveOrigSub(false)
     setShowEditor(false); setError(''); setPhase('setup')
     setPubError('')
   }
@@ -526,7 +530,7 @@ const Dub: React.FC = () => {
                     {upload.meta.subtitle_streams > 0 && ` · 含 ${upload.meta.subtitle_streams} 条内嵌字幕`}
                   </p>
                   <button
-                    onClick={() => { setUpload(null); setSubInfo(null); setUseEmbedded(false); setSubSource(null) }}
+                    onClick={() => { setUpload(null); setSubInfo(null); setUseEmbedded(false); setSubSource(null); setRemoveOrigSub(false) }}
                     className="text-xs text-mint-600 hover:underline mt-1"
                   >重新选择</button>
                 </div>
@@ -708,6 +712,13 @@ const Dub: React.FC = () => {
                 <Toggle label="烧录中文字幕（硬字幕，随处可看）" checked={burnSub} onChange={setBurnSub} />
                 <Toggle label="同时输出软字幕版（字幕可开关）" checked={softSub} onChange={setSoftSub} />
                 <Toggle label="双语字幕（原文 + 中文）" checked={bilingual} onChange={setBilingual} />
+                {subSource === 'ocr' && !subInfo && !useEmbedded && (
+                  <Toggle
+                    label="去除画面原字幕（模糊底部字幕带，仅烧录字幕有效）"
+                    checked={removeOrigSub}
+                    onChange={setRemoveOrigSub}
+                  />
+                )}
                 {/* 背景音：关闭 / 保留原声 / 智能去人声 */}
                 <div>
                   <p className="text-sm text-stone-700 mb-1.5">背景音</p>

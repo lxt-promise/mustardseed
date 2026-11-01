@@ -7,7 +7,7 @@ python-multipart>=0.0.9
 aiofiles>=23.2
 
 # 语音合成（微软 Edge TTS，免费）
-edge-tts>=6.1.9
+edge-tts>=7.3.1
 
 # 本地语音识别（可选：不装则只能用云端识别）
 faster-whisper>=1.0.0

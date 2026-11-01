@@ -594,7 +594,18 @@ class JobManager:
             progress=dub_progress,
         )
         if not parts:
-            raise RuntimeError("配音合成为空，请检查字幕内容是否为空")
+            total = len(lines) if lines else 0
+            if total == 0:
+                raise RuntimeError(
+                    "配音合成为空，请检查字幕内容是否为空"
+                )
+            # 有句子但全部合成失败：TTS 服务不可用（常见为微软接口
+            # 风控 403/503），错误文案要与「字幕为空」区分开
+            raise RuntimeError(
+                "语音合成全部失败：微软 TTS 服务拒绝请求（403/限流）。"
+                "请升级 edge-tts 后重试：python -m pip install -U edge-tts；"
+                "若持续失败请稍后再试或检查本机系统时间是否准确"
+            )
 
         plan = dubbing.build_dub_plan(lines, total_duration)
         job.plan = plan
@@ -712,6 +723,42 @@ class JobManager:
             bgm_ducking=bgm_ducking,
             duration=total_duration,
         )
+
+        # ---- 去除画面原字幕（仅 OCR 源：知晓硬字幕出现的精确区间）----
+        # 原理：ffmpeg delogo 滤镜对底部字幕矩形区做邻域插值模糊，
+        # 生效时间 = OCR 识别出的各句字幕显示区间（区间外画面不动，
+        # 保留背景细节）。翻译/人工校对不改变时间轴，直接用 segments。
+        if opt.get("remove_original_subtitle") and opt.get("ocr_hard_subtitle") and segments:
+            try:
+                src_info = mu.probe(job.source)
+                if src_info.width > 0 and src_info.height > 0:
+                    bx = max(1, round(src_info.width * 0.02))
+                    by = round(src_info.height * 0.74)
+                    video_kwargs["delogo_band"] = (
+                        bx, by, src_info.width - 2 * bx, round(src_info.height * 0.24)
+                    )
+                    # 合并相邻/重叠区间（间隔 < 0.8s 视为连续字幕），缩短表达式
+                    merged: list[list[float]] = []
+                    for s in sorted(segments, key=lambda x: x.start):
+                        if merged and s.start - merged[-1][1] < 0.8:
+                            merged[-1][1] = max(merged[-1][1], s.end)
+                        else:
+                            merged.append([s.start, s.end])
+                    covered = sum(b - a for a, b in merged)
+                    if src_info.duration <= 0 or covered / src_info.duration > 0.75:
+                        # 字幕几乎全程在场，直接全程生效（表达式更短更稳）
+                        job.logs.append(
+                            "[字幕] 已模糊去除画面底部原字幕（覆盖全程）"
+                        )
+                    else:
+                        video_kwargs["delogo_windows"] = [(a, b) for a, b in merged]
+                        job.logs.append(
+                            f"[字幕] 已模糊去除画面底部原字幕（{len(merged)} 段区间）"
+                        )
+                else:
+                    job.logs.append("[字幕] 原字幕去除跳过（无法读取视频尺寸）")
+            except mu.FFmpegError:
+                job.logs.append("[字幕] 原字幕去除跳过（读取视频信息失败）")
         try:
             mu.build_video(job.source, dubbed_audio, final, **video_kwargs)
         except mu.FFmpegError as exc:

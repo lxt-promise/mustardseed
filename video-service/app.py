@@ -935,7 +935,7 @@ _OPTION_KEYS = {
     "voice", "rate", "volume", "pitch", "auto_fit",
     "burn_subtitle", "soft_subtitle", "bilingual", "keep_original_audio",
     "original_volume", "use_embedded_subtitle", "subtitle_file",
-    "subtitles_already_zh", "ocr_hard_subtitle",
+    "subtitles_already_zh", "ocr_hard_subtitle", "remove_original_subtitle",
     "bgm_mode", "bgm_volume", "bgm_ducking",
     "output_suffix", "output_dir", "edited_segments",
 }
